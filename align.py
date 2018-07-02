@@ -11,7 +11,7 @@ import utils as utils
 parser = argparse.ArgumentParser()
 parser.add_argument("--folder", type=str, default="/home/xuanerzh/Downloads/compare/",
                     required=True, help="root folder that contains the images")
-parser.add_argument("--ext", default='.JPG', help="file name txt file")
+parser.add_argument("--ext", default='.png', help="file name txt file")
 parser.add_argument("--filetxt", default=None, help="file name txt file")
 ARGS = parser.parse_args()
 print(ARGS)
@@ -19,8 +19,6 @@ print(ARGS)
 align = True
 folder = ARGS.folder
 MOTION_MODEL = "ECC"
-allfiles=os.listdir(folder)
-imlist=[filename for filename in allfiles if filename[-4:] in [".jpg", ".JPG",".png",".PNG"]]
 
 out_f = os.path.join(folder, 'aligned')
 out_sum = os.path.join(folder, 'compare')
@@ -31,15 +29,15 @@ if not os.path.exists(out_sum):
 
 images = []
 
-with open(ARGS.filetxt) as f:
-    for l in f:
-        line = l.splitlines()[0]
-        img_rgb = cv2.imread(ARGS.folder + line)
-        print(ARGS.folder + line)
-        img_rgb = utils.ImageToFloat(img_rgb)  # normalize to [0, 1]
-        images.append(img_rgb)
+allfiles=os.listdir(folder + 'cropped/')
+imlist=[filename for filename in allfiles if filename[-4:] in [".jpg", ".JPG",".png",".PNG"]]
+num_img = len(imlist)
 
-num_img = len(images)
+for impath in sorted(imlist):
+    img_rgb = cv2.imread(folder + 'cropped/' + impath)
+    print(folder + 'cropped/' + impath)
+    img_rgb = utils.ImageToFloat(img_rgb)  # normalize to [0, 1]
+    images.append(img_rgb)
 
 # operate on downsampled images
 ref_ind = 0

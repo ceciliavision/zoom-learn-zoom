@@ -16,7 +16,7 @@ from timeit import default_timer as timer
 FOCAL_CODE = 37386
 
 # 35mm equivalent focal length
-def readFocal(image_path):
+def readFocal_pil(image_path):
 	img = PIL.Image.open(image_path)
 	exif_data = img._getexif()
 	return exif_data[FOCAL_CODE][0]/exif_data[FOCAL_CODE][1]
