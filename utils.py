@@ -2,27 +2,97 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
-import sys
-PY3 = sys.version_info > (3,)
-if PY3:
-    from builtins import isinstance
-else:
-    from __builtin__ import isinstance
-
-import cv2, PIL.Image
+import cv2, sys, os, rawpy
+from PIL import Image
 import numpy as np
 from timeit import default_timer as timer
+import scipy.stats as stats
 
 FOCAL_CODE = 37386
+IMG_EXTENSIONS = [
+    '.jpg', '.JPG', '.jpeg', '.JPEG', 'tiff',
+    '.png', '.PNG', '.ppm', '.PPM', '.bmp', '.BMP',
+]
+RAW_EXTENSIONS = [
+    '.ARW', '.arw', '.CR2', 'cr2',
+]
+
+lower, upper = 0., 1.
+mu, sigma = 0.5, 0.2
+rand_gen = stats.truncnorm(
+    (lower - mu) / sigma, (upper - mu) / sigma, loc=mu, scale=sigma)
+
+crop_sz = 512
+
+def is_image_file(filename):
+    return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
+
+def is_raw_file(filename):
+    return any(filename.endswith(extension) for extension in RAW_EXTENSIONS)
+
+def pack_raw(path):
+    raw = rawpy.imread(path)
+    im = raw.raw_image_visible.astype(np.float32)
+    im = np.maximum(im - 512,0)/ (16383 - 512) #subtract the black level
+
+    im = np.expand_dims(im,axis=2) 
+    img_shape = im.shape
+    H = img_shape[0]
+    W = img_shape[1]
+
+    out = np.concatenate((im[0:H:2,0:W:2,:], 
+                       im[0:H:2,1:W:2,:],
+                       im[1:H:2,1:W:2,:],
+                       im[1:H:2,0:W:2,:]), axis=2)
+    return out
+
+def prepare_path(path, type='RAW'):
+    paths=[]
+    for dirname in path:
+        for root, _, fnames in sorted(os.walk(dirname)):
+            for fname in sorted(fnames):
+                if type == 'RAW':
+                    if is_raw_file(fname):
+                        paths.append(os.path.join(root, fname))
+                else:
+                    if is_image_file(fname):
+                        paths.append(os.path.join(root, fname))
+    return paths
+
+def prepare_input(path, is_crop=True):
+    tar_path = os.path.join(os.path.dirname(path),'processed/raw_avg.png')
+    tar_rgb = Image.open(tar_path)
+    input_raw = pack_raw(path)
+    if is_crop:
+        input_raw, tar_rgb = crop_image(input_raw, tar_rgb, 512, 512, type='central')
+        if input_raw is None or tar_rgb is None:
+            return None, None
+    tar_rgb = np.array(tar_rgb,dtype=np.float32) / 255.
+    tar_rgb = np.expand_dims(tar_rgb, axis=0)
+    input_raw = np.expand_dims(input_raw, axis=0)
+    return input_raw, tar_rgb
 
 # 35mm equivalent focal length
 def readFocal_pil(image_path):
-	img = PIL.Image.open(image_path)
-	exif_data = img._getexif()
-	return exif_data[FOCAL_CODE][0]/exif_data[FOCAL_CODE][1]
+    img = PIL.Image.open(image_path)
+    exif_data = img._getexif()
+    return exif_data[FOCAL_CODE][0]/exif_data[FOCAL_CODE][1]
+
+# PIL image format
+def crop_image(raw, image, croph, cropw, type='central'):
+    height, width = raw.shape[:2]
+    if croph > height or cropw > width:
+        print("Image too small to have the specified crop sizes.")
+        return None
+    if type == 'central':
+        rand_p = rand_gen.rvs(2)
+        sx = int((height - croph) * rand_p[0])
+        sy = int((width - cropw) * rand_p[1])
+        area = (sy*2, sx*2, sy*2+cropw*2, sx*2+croph*2)
+    return raw[sx:sx+croph, sy:sy+cropw,...], image.crop(area)
 
 # image_set: a list of images
-def BgrToGray(image_set):
+def bgr_gray(image_set):
     img_num = len(image_set)
     image_gray_set = []
     for i in range (img_num):
@@ -30,7 +100,7 @@ def BgrToGray(image_set):
         image_gray_set.append(image_gray_i)
     return image_gray_set
 
-def ImageToFloat(image):
+def image_float(image):
     image = image.astype(np.float32) / 255
     return image
 
