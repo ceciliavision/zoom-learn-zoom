@@ -6,10 +6,10 @@ import utils as utils
 from PIL import Image
 
 is_debug = False
-mode = 'train'
+continue_training = True
+mode = 'test'
 task = 'restore_vanilla'
 train_root = ['/home/xuanerzh/Downloads/burst/']
-continue_training = False
 num_channels = 64
 save_freq = 10
 num_in_ch = 4
@@ -91,7 +91,7 @@ if mode == "train":
                     tartget_rgb = Image.fromarray(np.uint8(tartget_rgb))
                     output_rgb.save("/home/xuanerzh/tmp/out_rgb_%d.png"%(cnt))
                     tartget_rgb.save("/home/xuanerzh/tmp/tar_rgb_%d.png"%(cnt))
-
+                target_buffer = target_rgb_img[id]
                 input_raw_img[id]=1.
                 target_rgb_img[id]=1.
 
@@ -102,7 +102,24 @@ if mode == "train":
             saver.save(sess,"%s/%04d/model.ckpt"%(task,epoch))
             output_rgb = out_objDict["out_rgb"][0,...]*255
             output_rgb = Image.fromarray(np.uint8(output_rgb))
-            tartget_rgb = target_rgb_img[id][0,...]*255
+            tartget_rgb = target_buffer[0,...]*255
             tartget_rgb = Image.fromarray(np.uint8(tartget_rgb))
             output_rgb.save("%s/%04d/out_rgb.png"%(task,epoch))
             tartget_rgb.save("%s/%04d/tar_rgb.png"%(task,epoch))
+
+else:
+    test_folder = 'test'
+    if not os.path.isdir("%s/%s"%(task, test_folder)):
+        os.makedirs("%s/%s"%(task, test_folder))
+    for id in np.random.permutation(num_train):
+        print("Testing on %d th image"%(id))
+        input_raw_img,target_rgb_img = utils.prepare_input(train_input_paths[id])
+        fetch_list=[objDict,lossDict]
+        out_objDict,out_lossDict=sess.run(fetch_list,feed_dict=
+            {input_raw:input_raw_img,target_rgb:target_rgb_img})
+        output_rgb = out_objDict["out_rgb"][0,...]*255
+        output_rgb = Image.fromarray(np.uint8(output_rgb))
+        tartget_rgb = target_rgb_img[0,...]*255
+        tartget_rgb = Image.fromarray(np.uint8(tartget_rgb))
+        output_rgb.save("%s/%s/%d_out_rgb.png"%(task,test_folder,id))
+        tartget_rgb.save("%s/%s/%d_tar_rgb.png"%(task,test_folder,id))

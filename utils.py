@@ -74,7 +74,7 @@ def prepare_input(path, is_crop=True):
 
 # 35mm equivalent focal length
 def readFocal_pil(image_path):
-    img = PIL.Image.open(image_path)
+    img = Image.open(image_path)
     exif_data = img._getexif()
     return exif_data[FOCAL_CODE][0]/exif_data[FOCAL_CODE][1]
 
@@ -105,7 +105,7 @@ def image_float(image):
     return image
 
 # check
-def GetFeature(image, feature_type):
+def get_feature(image, feature_type):
     # Initiate detector
     if feature_type is "ORB":
         feat = cv2.ORB_create()
@@ -121,7 +121,7 @@ def GetFeature(image, feature_type):
     return key_pts, key_descriptors
 
 # check
-def GetTransform(ref_descriptors, ref_pts, image_set, t_type):
+def get_transform(ref_descriptors, ref_pts, image_set, t_type):
     if t_type is None:
         t_type = "homography"
 
@@ -158,7 +158,7 @@ def GetTransform(ref_descriptors, ref_pts, image_set, t_type):
     return tform_set
 
 # check
-def ApplyTransform(image_set, tform_set, t_type):
+def apply_transform(image_set, tform_set, t_type, scale=1.):
     if t_type is None:
         if tform_set[0].shape == 2:
             t_type = "rigid"
@@ -173,17 +173,22 @@ def ApplyTransform(image_set, tform_set, t_type):
     image_t_set = np.zeros_like(image_set)
     for i in range(img_num):
         image_i = image_set[i]
+        tform_i = tform_set[i]
+        print(tform_i)
+        tform_i[0,2] *= scale
+        tform_i[1,2] *= scale
+        print(tform_i)
         if t_type != "homography":
-            image_i_transform = cv2.warpAffine(image_i, tform_set[i], (c, r),
+            image_i_transform = cv2.warpAffine(image_i, tform_i, (c, r),
                                                 flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
         else:
-            image_i_transform = cv2.warpPerspective(image_i, tform_set[i], (c, r),
+            image_i_transform = cv2.warpPerspective(image_i, tform_i, (c, r),
                                                 flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
         image_t_set[i] = image_i_transform
 
     return image_t_set
 
-def SumAlignedImage(image_aligned, image_set):
+def sum_aligned_image(image_aligned, image_set):
     sum_img = np.float32(image_aligned[0]) * 1. / len(image_aligned)
     sum_img_t = np.float32(image_aligned[0]) * 1. / len(image_aligned)
     for i in range(1, len(image_aligned)):
@@ -191,7 +196,7 @@ def SumAlignedImage(image_aligned, image_set):
         sum_img += np.float32(image_set[i]) * 1. / len(image_aligned)
     return sum_img_t, sum_img
 
-def AlignEcc(image_set, images_gray_set, ref_ind, thre=0.05):
+def align_ecc(image_set, images_gray_set, ref_ind, thre=0.05, scale=1.):
     img_num = len(image_set)
     # select the image as reference
     # ref_image = image_set[ref_ind]
@@ -244,8 +249,6 @@ def AlignEcc(image_set, images_gray_set, ref_ind, thre=0.05):
         warp_matrix = np.eye(2, 3, dtype=np.float32)
 
     for i in range(ref_ind, img_num, 1):
-        # s_i = timer()
-        # print("Align image " + str(i))
         _, warp_matrix = cv2.findTransformECC(ref_gray_image, images_gray_set[i], warp_matrix, warp_mode, criteria)
         tform_set[i] = warp_matrix
         tform_inv_set[i] = cv2.invertAffineTransform(warp_matrix)
