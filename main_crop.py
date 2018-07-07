@@ -13,13 +13,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--path", type=str, default="/home/xuanerzh/Downloads/zoom/",
                     required=True, help="root folder that contains the images")
 parser.add_argument("--filetxt", default=None, help="file name txt file")
+parser.add_argument("--ext", default='JPG', help="file type")
 ARGS = parser.parse_args()
 print(ARGS)
 
 if not os.path.exists(ARGS.path + "cropped/"):
     os.mkdir(ARGS.path + "cropped/")
 
-tname = '00001.jpg'
+tname = '00001.' + ARGS.ext
 img_rgb = Image.open(ARGS.path + tname)
 img_rgb.save(ARGS.path + "cropped/00001.png")
 

@@ -158,7 +158,9 @@ def get_transform(ref_descriptors, ref_pts, image_set, t_type):
     return tform_set
 
 # check
-def apply_transform(image_set, tform_set, t_type, scale=1.):
+def apply_transform(image_set, tform_set, tform_inv_set, t_type, scale=1.):
+    tform_set_2 = tform_set
+    tform_inv_set_2 = tform_inv_set
     if t_type is None:
         if tform_set[0].shape == 2:
             t_type = "rigid"
@@ -174,10 +176,13 @@ def apply_transform(image_set, tform_set, t_type, scale=1.):
     for i in range(img_num):
         image_i = image_set[i]
         tform_i = tform_set[i]
-        print(tform_i)
+        tform_i_inv = tform_inv_set[i]
         tform_i[0,2] *= scale
         tform_i[1,2] *= scale
-        print(tform_i)
+        tform_i_inv[0,2] *= scale
+        tform_i_inv[1,2] *= scale
+        tform_set_2[i] = tform_i
+        tform_inv_set_2[i] = tform_i_inv
         if t_type != "homography":
             image_i_transform = cv2.warpAffine(image_i, tform_i, (c, r),
                                                 flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
@@ -186,7 +191,7 @@ def apply_transform(image_set, tform_set, t_type, scale=1.):
                                                 flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
         image_t_set[i] = image_i_transform
 
-    return image_t_set
+    return image_t_set, tform_set_2, tform_inv_set_2
 
 def sum_aligned_image(image_aligned, image_set):
     sum_img = np.float32(image_aligned[0]) * 1. / len(image_aligned)
