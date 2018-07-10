@@ -1,6 +1,7 @@
 # PYTHON
 __pycache__
 *.pyc
+*.swp
 
 # OS generated files #
 ######################

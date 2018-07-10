@@ -8,12 +8,13 @@ import matplotlib.pyplot as plt
 from timeit import default_timer as timer
 import utils as utils
 
+# python ./main_align.py --folder /home/xuanerzh/Downloads/zoom/iphone2x_both/00055/ --rsz 3
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--folder", type=str, default="/home/xuanerzh/Downloads/compare/",
                     required=True, help="root folder that contains the images")
 parser.add_argument("--model", default='ECC', type=str, help="motion model")
 parser.add_argument("--rsz", default=0., type=int, help="resize ratio for alignment")
-parser.add_argument("--ext", default='.png', help="file type")
 ARGS = parser.parse_args()
 print(ARGS)
 
@@ -56,7 +57,11 @@ corner = np.array([[0,0,width,width],[0,height,0,height],[1,1,1,1]])
 print("Start alignment")
 alg_start = timer()
 images_gray = utils.bgr_gray(image_ds)
-t, t_inv, valid_id = utils.align_ecc(image_ds, images_gray, ref_ind, thre=0.2)
+
+if MOTION_MODEL == 'ECC':
+	t, t_inv, valid_id = utils.align_ecc(image_ds, images_gray, ref_ind, thre=0.2)
+elif MOTION_MODEL == 'RIGID':
+	t, t_inv, valid_id = utils.align_rigid(image_ds, images_gray, ref_ind, thre=0.2)
 alg_end = timer()
 print("Full alignment: " + str(alg_end - alg_start) + "s")
 
@@ -69,6 +74,7 @@ out.close()
 
 for i in range(num_img):
     corner_out = np.matmul(np.vstack([np.array(t_inv[i]),[0,0,1]]),corner)
+    print(i, corner_out)
     corner_out[0,:] = np.divide(corner_out[0,:],corner_out[2,:])
     corner_out[1,:] = np.divide(corner_out[1,:],corner_out[2,:])
     corner_out = corner_out[..., np.newaxis]
@@ -77,17 +83,17 @@ for i in range(num_img):
     else:
         corner_t = np.append(corner_t,corner_out,2)
 
-images_t = list(images_t[i] for i in valid_id)
-images = list(images[i] for i in valid_id)
-ref_ind = valid_id.index(ref_ind)
-num_img = len(images_t)
+# images_t = list(images_t[i] for i in valid_id)
+# images = list(images[i] for i in valid_id)
+# ref_ind = valid_id.index(ref_ind)
+# num_img = len(images_t)
 
 ################ CROP & COMPARE ################
-min_w = np.max(corner_t[0,0:2,:])
+min_w = np.max(corner_t[0,[0,1],:])
 min_w = int(np.max(np.ceil(min_w),0))
 min_h = np.max(corner_t[1,[0,2],:])
 min_h = int(np.max(np.ceil(min_h),0))
-max_w = np.min(corner_t[0,2:3,:])
+max_w = np.min(corner_t[0,[2,3],:])
 max_w = int(np.floor(max_w))
 max_h = np.min(corner_t[1,[1,3],:])
 max_h = int(np.floor(max_h))

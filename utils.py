@@ -9,6 +9,7 @@ from timeit import default_timer as timer
 import scipy.stats as stats
 
 FOCAL_CODE = 37386
+ORIEN_CODE = 274
 IMG_EXTENSIONS = [
     '.jpg', '.JPG', '.jpeg', '.JPEG', 'tiff',
     '.png', '.PNG', '.ppm', '.PPM', '.bmp', '.BMP',
@@ -78,6 +79,11 @@ def readFocal_pil(image_path):
     exif_data = img._getexif()
     return exif_data[FOCAL_CODE][0]/exif_data[FOCAL_CODE][1]
 
+def readOrien_pil(image_path):
+    img = Image.open(image_path)
+    exif_data = img._getexif()
+    return exif_data[ORIEN_CODE]
+
 # PIL image format
 def crop_image(raw, image, croph, cropw, type='central'):
     height, width = raw.shape[:2]
@@ -104,6 +110,12 @@ def image_float(image):
     image = image.astype(np.float32) / 255
     return image
 
+def image_uint8(image):
+    if image.max() > 10:
+        return image
+    image = (image * 255).astype(np.uint8)
+    return image
+
 # check
 def get_feature(image, feature_type):
     # Initiate detector
@@ -118,19 +130,16 @@ def get_feature(image, feature_type):
     key_pts = feat.detect(image, None)
     # compute the descriptors with ORB
     key_pts, key_descriptors = feat.compute(image, key_pts)  # key_pts correspondes to struct in MATLAB
-    return key_pts, key_descriptors
+    return key_descriptors, key_pts
 
 # check
-def get_transform(ref_descriptors, ref_pts, image_set, t_type):
-    if t_type is None:
-        t_type = "homography"
-
+def get_transform(ref_descriptors, ref_pts, image_set, t_type="rigid", feature_type='ORB'):
     img_num = len(image_set)
     tform_set = []
+    tform_inv_set = []
     for i in range (img_num):
-        print("[!] Processing frame %d" % i)
         base_image = image_set[i]
-        query_pts, query_descriptors = GetFeature(base_image, "ORB")
+        query_pts, query_descriptors = get_feature(base_image, "ORB")
         bf_matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         matches_features = bf_matcher.match(query_descriptors, ref_descriptors) # query to train
         avg_distance = 1e-6 + sum(m.distance for m in matches_features)/len(matches_features)
@@ -154,8 +163,10 @@ def get_transform(ref_descriptors, ref_pts, image_set, t_type):
         else:
             tform = cv2.estimateRigidTransform(query_match_pts_scale, ref_match_pts_scale, False)
 
+        print(tform)
         tform_set.append(tform)
-    return tform_set
+        tform_inv_set.append(cv2.invertAffineTransform(tform))
+    return tform_set, tform_inv_set
 
 # check
 def apply_transform(image_set, tform_set, tform_inv_set, t_type, scale=1.):
@@ -201,7 +212,51 @@ def sum_aligned_image(image_aligned, image_set):
         sum_img += np.float32(image_set[i]) * 1. / len(image_aligned)
     return sum_img_t, sum_img
 
-def align_ecc(image_set, images_gray_set, ref_ind, thre=0.05, scale=1.):
+def align_rigid(image_set, images_gray_set, ref_ind, thre=0.05):
+    img_num = len(image_set)
+    ref_gray_image = images_gray_set[ref_ind]
+    r, c = image_set[0].shape[0:2]
+
+    identity_transform = np.eye(2, 3, dtype=np.float32)
+    warp_matrix = np.eye(2, 3, dtype=np.float32)
+    tform_set_init = [np.eye(2, 3, dtype=np.float32)] * img_num
+
+    tform_set = np.zeros_like(tform_set_init)
+    tform_inv_set = np.zeros_like(tform_set_init)
+    valid_id = []
+    motion_thre = thre * min(r, c)
+    for i in range(ref_ind - 1, -1, -1):
+        warp_matrix = cv2.estimateRigidTransform(image_uint8(ref_gray_image), 
+            image_uint8(images_gray_set[i]), fullAffine=0)
+        print("warp_matrix: ", warp_matrix)
+        tform_set[i] = warp_matrix
+        tform_inv_set[i] = cv2.invertAffineTransform(warp_matrix)
+
+        motion_val = abs(warp_matrix - identity_transform).sum()
+        if motion_val < motion_thre:
+            valid_id.append(i)
+        else:
+            continue
+
+    warp_matrix = np.eye(2, 3, dtype=np.float32)
+
+    for i in range(ref_ind, img_num, 1):
+        warp_matrix = cv2.estimateRigidTransform(image_uint8(ref_gray_image), 
+            image_uint8(images_gray_set[i]), fullAffine=0)
+        tform_set[i] = warp_matrix
+        tform_inv_set[i] = cv2.invertAffineTransform(warp_matrix)
+
+        motion_val = abs(warp_matrix - identity_transform).sum()
+        if motion_val < motion_thre:
+            valid_id.append(i)
+        else:
+            continue
+
+        # e_i = timer()
+        # print("each iter:", str(e_i - s_i))
+    return tform_set, tform_inv_set, valid_id
+
+def align_ecc(image_set, images_gray_set, ref_ind, thre=0.05):
     img_num = len(image_set)
     # select the image as reference
     # ref_image = image_set[ref_ind]
@@ -227,14 +282,11 @@ def align_ecc(image_set, images_gray_set, ref_ind, thre=0.05, scale=1.):
     criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, number_of_iterations, termination_eps)
 
     # Run the ECC algorithm. The results are stored in warp_matrix.
-    aligned_images = np.zeros_like(image_set)
     tform_set = np.zeros_like(tform_set_init)
     tform_inv_set = np.zeros_like(tform_set_init)
     valid_id = []
     motion_thre = thre * min(r, c)
     for i in range(ref_ind - 1, -1, -1):
-        # s_i = timer()
-        # print("Align image " + str(i))
         _, warp_matrix = cv2.findTransformECC(ref_gray_image, images_gray_set[i], warp_matrix, warp_mode, criteria)
         tform_set[i] = warp_matrix
         tform_inv_set[i] = cv2.invertAffineTransform(warp_matrix)
@@ -244,9 +296,6 @@ def align_ecc(image_set, images_gray_set, ref_ind, thre=0.05, scale=1.):
             valid_id.append(i)
         else:
             continue
-
-        # e_i = timer()
-        # print("each iter:", str(e_i - s_i))
 
     if  warp_mode == cv2.MOTION_HOMOGRAPHY:
         warp_matrix = np.eye(3, 3, dtype=np.float32)
@@ -263,7 +312,4 @@ def align_ecc(image_set, images_gray_set, ref_ind, thre=0.05, scale=1.):
             valid_id.append(i)
         else:
             continue
-
-        # e_i = timer()
-        # print("each iter:", str(e_i - s_i))
     return tform_set, tform_inv_set, valid_id
