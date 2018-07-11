@@ -116,7 +116,19 @@ def image_uint8(image):
     image = (image * 255).astype(np.uint8)
     return image
 
-# check
+def get_tform(txtfile, key, model='ECC'):
+    if model in ['ECC', 'RIGID']:
+        tform = np.eye(2, 3, dtype=np.float32)
+    else:
+        tform = np.eye(3, 3, dtype=np.float32)
+    with open(txtfile) as f:
+        for l in f:
+            if key in l:
+                for i in range(tform.shape[0]):
+                    nextline = next(f)
+                    tform[i,:] = nextline.split()
+    return tform
+
 def get_feature(image, feature_type):
     # Initiate detector
     if feature_type is "ORB":
@@ -228,7 +240,9 @@ def align_rigid(image_set, images_gray_set, ref_ind, thre=0.05):
     for i in range(ref_ind - 1, -1, -1):
         warp_matrix = cv2.estimateRigidTransform(image_uint8(ref_gray_image), 
             image_uint8(images_gray_set[i]), fullAffine=0)
-        print("warp_matrix: ", warp_matrix)
+        # print("warp_matrix: ", warp_matrix)
+        if warp_matrix is None:
+            continue
         tform_set[i] = warp_matrix
         tform_inv_set[i] = cv2.invertAffineTransform(warp_matrix)
 
@@ -239,21 +253,20 @@ def align_rigid(image_set, images_gray_set, ref_ind, thre=0.05):
             continue
 
     warp_matrix = np.eye(2, 3, dtype=np.float32)
-
     for i in range(ref_ind, img_num, 1):
         warp_matrix = cv2.estimateRigidTransform(image_uint8(ref_gray_image), 
             image_uint8(images_gray_set[i]), fullAffine=0)
+        if warp_matrix is None:
+            tform_set[i] = identity_transform
+            tform_inv_set[i] = identity_transform
+            continue
         tform_set[i] = warp_matrix
         tform_inv_set[i] = cv2.invertAffineTransform(warp_matrix)
-
         motion_val = abs(warp_matrix - identity_transform).sum()
         if motion_val < motion_thre:
             valid_id.append(i)
         else:
             continue
-
-        # e_i = timer()
-        # print("each iter:", str(e_i - s_i))
     return tform_set, tform_inv_set, valid_id
 
 def align_ecc(image_set, images_gray_set, ref_ind, thre=0.05):

@@ -66,11 +66,11 @@ alg_end = timer()
 print("Full alignment: " + str(alg_end - alg_start) + "s")
 
 images_t, t, t_inv = utils.apply_transform(images, t, t_inv, MOTION_MODEL, scale=2 ** ARGS.rsz)
-with open(tform_txt, 'a') as out:
+with open(tform_txt, 'w') as out:
     for i, t_i in enumerate(t):
         out.write("%05d-%05d:"%(1, i+1) + '\n')
-        out.write("%s"%(t_i) + '\n')
-out.close()
+        np.savetxt(out, t_i, fmt="%.4f")
+        # out.write("%s"%(t_i) + '\n')
 
 for i in range(num_img):
     corner_out = np.matmul(np.vstack([np.array(t_inv[i]),[0,0,1]]),corner)
@@ -83,10 +83,12 @@ for i in range(num_img):
     else:
         corner_t = np.append(corner_t,corner_out,2)
 
-# images_t = list(images_t[i] for i in valid_id)
-# images = list(images[i] for i in valid_id)
-# ref_ind = valid_id.index(ref_ind)
-# num_img = len(images_t)
+print("Valid IDs: ",valid_id)
+images_t = list(images_t[i] for i in valid_id)
+images = list(images[i] for i in valid_id)
+imlist = list(imlist[i] for i in valid_id)
+ref_ind = valid_id.index(ref_ind)
+num_img = len(images_t)
 
 ################ CROP & COMPARE ################
 min_w = np.max(corner_t[0,[0,1],:])
@@ -97,6 +99,11 @@ max_w = np.min(corner_t[0,[2,3],:])
 max_w = int(np.floor(max_w))
 max_h = np.min(corner_t[1,[1,3],:])
 max_h = int(np.floor(max_h))
+
+with open(tform_txt, 'a') as out:
+	out.write("corner:" + '\n')
+	out.write("%05d %05d %05d %05d"%(min_h, max_h, min_w, max_w))
+out.close()
 
 sum_img_t, sum_img = utils.sum_aligned_image(images_t, images)
 
