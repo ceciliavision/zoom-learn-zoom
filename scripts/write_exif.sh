@@ -1,6 +1,8 @@
 #!/bin/bash
 
-src_dir=/home/xuanerzh/Downloads/zoom/iphone2x_both/
+# dslr_10x_both    iphone2x_both
+
+src_dir=/home/xuanerzh/Downloads/zoom/dslr_10x_both/
 
 echo "Source dir: " $src_dir
 for path in $src_dir*/

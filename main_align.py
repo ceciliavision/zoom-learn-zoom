@@ -74,7 +74,7 @@ with open(tform_txt, 'w') as out:
 
 for i in range(num_img):
     corner_out = np.matmul(np.vstack([np.array(t_inv[i]),[0,0,1]]),corner)
-    print(i, corner_out)
+    # print(i, corner_out)
     corner_out[0,:] = np.divide(corner_out[0,:],corner_out[2,:])
     corner_out[1,:] = np.divide(corner_out[1,:],corner_out[2,:])
     corner_out = corner_out[..., np.newaxis]

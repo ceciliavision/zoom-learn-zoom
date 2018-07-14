@@ -20,6 +20,7 @@ parser.add_argument("--ext", default='JPG', help="file type")
 ARGS = parser.parse_args()
 print(ARGS)
 
+Image.MAX_IMAGE_PIXELS = None
 if not os.path.exists(ARGS.path + "cropped/"):
     os.mkdir(ARGS.path + "cropped/")
 

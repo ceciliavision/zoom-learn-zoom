@@ -3,18 +3,22 @@ import tensorflow as tf
 import numpy as np
 import model.net as net
 import utils as utils
+import loss as losses
 from PIL import Image
 
 is_debug = False
 continue_training = True
 mode = 'test'
 task = 'restore_vanilla'
-train_root = ['/home/xuanerzh/Downloads/burst/']
+train_root = ['/home/xuanerzh/Downloads/zoom/dslr_10x_both/']
 num_channels = 64
 save_freq = 10
 num_in_ch = 4
 num_out_ch = 12
 batch_size = 1
+pw, ph = 480, 480
+tw, th = 540, 540
+file_type='RAW'
 
 with tf.variable_scope(tf.get_variable_scope()):
     input_raw=tf.placeholder(tf.float32,shape=[batch_size,None,None,num_in_ch])
@@ -27,12 +31,14 @@ with tf.variable_scope(tf.get_variable_scope()):
         reuse=False,
         num_layer=8)
 
-    loss_l1=tf.reduce_mean(tf.abs(out_rgb - target_rgb))
+    loss_context=losses.(prediction, target, pw, ph, tw, th, losstype='l1', align=False)
+    loss_l1=losses.compute_l1_loss(out_rgb, target_rgb)
 
     objDict = {}
     lossDict = {}
     objDict['out_rgb'] = out_rgb
     lossDict['l1'] = loss_l1
+    lossDict['context'] = loss_context
     loss_sum = sum(lossDict.values())
     lossDict['total'] = loss_sum
 
@@ -49,7 +55,7 @@ if ckpt and continue_training:
     print('loaded '+ ckpt.model_checkpoint_path)
     saver_restore.restore(sess,ckpt.model_checkpoint_path)
 
-train_input_paths=utils.prepare_path(train_root, type='RAW')
+train_input_paths=utils.read_paths(train_root, type=file_type)
 maxepoch=100
 num_train=len(train_input_paths)
 print("Number of training images: ", num_train)
@@ -65,7 +71,10 @@ if mode == "train":
         cnt=0
         for id in np.random.permutation(num_train):
             if input_raw_img[id] is None:
-                input_raw_img[id],target_rgb_img[id] = utils.prepare_input(train_input_paths[id])
+                train_input_path2 = utils.read_input_pair(train_input_paths[id])
+                if train_input_path2 is None:
+                    continue
+                input_raw_img[id],target_rgb_img[id] = utils.prepare_input(train_input_paths[id], train_input_path2)
                 # print("Image:",train_input_paths[id], input_raw_img[id].shape, target_rgb_img[id].shape)
 
                 if input_raw_img[id] is None or target_rgb_img[id] is None:

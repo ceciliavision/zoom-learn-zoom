@@ -7,7 +7,9 @@ from PIL import Image
 import numpy as np
 from timeit import default_timer as timer
 import scipy.stats as stats
+import tifffile
 
+######### Local Vars
 FOCAL_CODE = 37386
 ORIEN_CODE = 274
 IMG_EXTENSIONS = [
@@ -17,37 +19,22 @@ IMG_EXTENSIONS = [
 RAW_EXTENSIONS = [
     '.ARW', '.arw', '.CR2', 'cr2',
 ]
-
 lower, upper = 0., 1.
 mu, sigma = 0.5, 0.2
 rand_gen = stats.truncnorm(
     (lower - mu) / sigma, (upper - mu) / sigma, loc=mu, scale=sigma)
 
 crop_sz = 512
+num_pairs = len(pair_tuple)
 
+######### Util functions
 def is_image_file(filename):
     return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
 
 def is_raw_file(filename):
     return any(filename.endswith(extension) for extension in RAW_EXTENSIONS)
 
-def pack_raw(path):
-    raw = rawpy.imread(path)
-    im = raw.raw_image_visible.astype(np.float32)
-    im = np.maximum(im - 512,0)/ (16383 - 512) #subtract the black level
-
-    im = np.expand_dims(im,axis=2) 
-    img_shape = im.shape
-    H = img_shape[0]
-    W = img_shape[1]
-
-    out = np.concatenate((im[0:H:2,0:W:2,:], 
-                       im[0:H:2,1:W:2,:],
-                       im[1:H:2,1:W:2,:],
-                       im[1:H:2,0:W:2,:]), axis=2)
-    return out
-
-def prepare_path(path, type='RAW'):
+def read_paths(path, type='RAW'):
     paths=[]
     for dirname in path:
         for root, _, fnames in sorted(os.walk(dirname)):
@@ -60,21 +47,103 @@ def prepare_path(path, type='RAW'):
                         paths.append(os.path.join(root, fname))
     return paths
 
-def prepare_input(path, is_crop=True):
-    tar_path = os.path.join(os.path.dirname(path),'processed/raw_avg.png')
-    tar_rgb = Image.open(tar_path)
-    input_raw = pack_raw(path)
-    if is_crop:
-        input_raw, tar_rgb = crop_image(input_raw, tar_rgb, 512, 512, type='central')
+def read_input_pair(path):
+    input_dict = {}
+    fileid = int(os.path.basename(path).split('.')[0])
+    randid = np.random.randint(7) + 1
+    if randid == fileid:
+        return None
+    path2 = path.replace(os.path.basename(path).split('.')[0], "%05d"%(randid))
+    path_ref = path.replace(os.path.basename(path).split('.')[0], "%05d"%(1))
+    try:
+        focal1 = readFocal_pil(path)
+        focal2 = readFocal_pil(path2)
+        focal_ref = readFocal_pil(path_ref)
+    except:
+        print('[x] Cannot open %s or %s'%(path, path2))
+        return None
+    
+    if focal1 > focal2:
+        ratio = focal1/focal2
+        ratio_ref = focal_ref/focal1
+        src_path = path2
+        tar_path = path
+    else:
+        ratio = focal2/focal1
+        ratio_ref = focal_ref/focal2
+        src_path = path
+        tar_path = path2
+    
+    if ratio > 1.9 and ratio < 4.5:
+        print("Learn a zoom of %s from %s to %s"%(ratio, src_path, tar_path))
+        input_dict['src_path'] = src_path
+        input_dict['tar_path'] = tar_path
+        input_dict['ratio_ref'] = ratio_ref
+        input_dict['ratio'] = ratio
+        input_dict['src_tform'] = get_tform(os.path.dirname(src_path)+'/tform.txt',
+            key=os.path.basename(src_path).split('.')[0])
+        input_dict['tar_tform'] = get_tform(os.path.dirname(tar_path)+'/tform.txt',
+            key=os.path.basename(tar_path).split('.')[0])
+        return input_dict
+    else:
+        return None
+
+def get_bayer(path):
+    raw = rawpy.imread(path)
+    bayer = raw.raw_image_visible.astype(np.float32)
+    bayer = np.maximum(bayer - 512,0)/ (16383 - 512) #subtract the black level
+    return bayer
+
+def reshape_raw(bayer):
+    bayer = np.expand_dims(bayer,axis=2) 
+    bayer_shape = bayer.shape
+    H = bayer_shape[0]
+    W = bayer_shape[1]
+
+    reshaped = np.concatenate((bayer[0:H:2,0:W:2,:], 
+                       bayer[0:H:2,1:W:2,:],
+                       bayer[1:H:2,1:W:2,:],
+                       bayer[1:H:2,0:W:2,:]), axis=2)
+    return reshaped
+
+def prepare_input(input_dict, tw, th, pw, ph, pre_crop=False):
+    input_dict = {}
+    ratio = input_dict['ratio']
+    ratio_ref = input_dict['ratio_ref']
+    ratio_ceil = np.ceil(ratio)
+    ratio_offset = ratio_ceil/ratio
+    scale_tform = np.eye(2, 3, dtype=np.float32)
+    scale_tform[0,0] = ratio_offset * ratio_ref
+    scale_tform[1,1] = ratio_offset * ratio_ref
+    inv_tar_tform = cv2.invertAffineTransform(input_dict['tar_tform'])
+    concat_tform = np.matmul(np.append(input_dict['src_tform'],[[0,0,1]],0),
+        np.append(scale_tform,[[0,0,1]],0))
+    concat_tform = np.matmul(np.append(inv_tar_tform,[[0,0,1]],0), concat_tform)
+
+    input_raw = get_bayer(input_dict['src_path'])
+    tar_raw = get_bayer(input_dict['tar_path'])
+    tar_rgb = tifffile.imread(os.path.dirname(input_dict['tar_path'])+'/rawjpg/'+os.path.basename(input_dict['tar_path'].split('.')[0]+'.tiff'))
+    input_raw_reshape = reshape_raw(input_raw)
+    cropped_raw = crop_raw(input_raw_reshape, 1./ratio)
+    tar_raw_reshape = reshape_raw(tar_raw)
+
+    if pre_crop:
+        input_raw, tar_rgb = crop_raw_image(input_raw, tar_rgb, 512, 512, type='central')
         if input_raw is None or tar_rgb is None:
             return None, None
     tar_rgb = np.array(tar_rgb,dtype=np.float32) / 255.
     tar_rgb = np.expand_dims(tar_rgb, axis=0)
-    input_raw = np.expand_dims(input_raw, axis=0)
-    return input_raw, tar_rgb
+    input_raw = np.expand_dims(cropped_raw, axis=0)
+    input_dict['ratio_offset'] = ratio_offset
+    input_dict['input_raw'] = input_raw
+    input_dict['tar_rgb'] = tar_rgb
+    input_dict['tform'] = concat_tform[0:2,...]
+    return input_dict
 
 # 35mm equivalent focal length
 def readFocal_pil(image_path):
+    if 'ARW' in image_path:
+        image_path = image_path.replace('ARW','JPG')
     img = Image.open(image_path)
     exif_data = img._getexif()
     return exif_data[FOCAL_CODE][0]/exif_data[FOCAL_CODE][1]
@@ -85,7 +154,7 @@ def readOrien_pil(image_path):
     return exif_data[ORIEN_CODE]
 
 # PIL image format
-def crop_image(raw, image, croph, cropw, type='central'):
+def crop_raw_image(raw, image, croph, cropw, type='central'):
     height, width = raw.shape[:2]
     if croph > height or cropw > width:
         print("Image too small to have the specified crop sizes.")
@@ -96,6 +165,17 @@ def crop_image(raw, image, croph, cropw, type='central'):
         sy = int((width - cropw) * rand_p[1])
         area = (sy*2, sx*2, sy*2+cropw*2, sx*2+croph*2)
     return raw[sx:sx+croph, sy:sy+cropw,...], image.crop(area)
+
+def crop_raw(raw, ratio):
+    width, height = raw.shape[:2]
+    new_width = width * ratio
+    new_height = height * ratio
+    left = np.ceil((width - new_width)/2.)
+    top = np.ceil((height - new_height)/2.)
+    right = np.floor((width + new_width)/2.)
+    bottom = np.floor((height + new_height)/2.)
+    cropped = raw[top:bottom, left:right, ...]
+    return cropped
 
 # image_set: a list of images
 def bgr_gray(image_set):
@@ -175,7 +255,7 @@ def get_transform(ref_descriptors, ref_pts, image_set, t_type="rigid", feature_t
         else:
             tform = cv2.estimateRigidTransform(query_match_pts_scale, ref_match_pts_scale, False)
 
-        print(tform)
+        # print(tform)
         tform_set.append(tform)
         tform_inv_set.append(cv2.invertAffineTransform(tform))
     return tform_set, tform_inv_set
