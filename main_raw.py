@@ -4,7 +4,7 @@ from PIL import Image
 # import tifffile
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--folder", type=str, default="/home/xuanerzh/Downloads/compare/",
+parser.add_argument("--folder", type=str, default="/home/xuanerzh/Downloads/zoom/dslr_10x_both/00065/",
                     required=True, help="root folder that contains the images")
 parser.add_argument("--new_w", default=512, type=int, help="new target width")
 ARGS = parser.parse_args()
@@ -14,11 +14,14 @@ allfiles=os.listdir(ARGS.folder)
 imlist=[filename for filename in allfiles if filename[-4:] in [".arw", ".ARW"]]
 num_img = len(imlist)
 
-if not os.path.exists(ARGS.folder + 'rawjpg/'):
-    os.mkdir(ARGS.folder + 'rawjpg/')
+p_folder = os.path.basename(os.path.dirname(os.path.dirname(ARGS.folder)))
+save_folder = ARGS.folder.replace(p_folder, p_folder+"_process")
 
-if not os.path.exists(ARGS.folder + 'rawjpg_ds/'):
-    os.mkdir(ARGS.folder + 'rawjpg_ds/')
+if not os.path.exists(save_folder + 'rawpng/'):
+    os.makedirs(save_folder + 'rawpng/')
+
+if not os.path.exists(save_folder + 'rawpng_ds/'):
+    os.makedirs(save_folder + 'rawpng_ds/')
 
 for impath in sorted(imlist):
 	print("Processing %s"%(ARGS.folder + impath))
@@ -33,8 +36,9 @@ for impath in sorted(imlist):
 	ratio = ARGS.new_w / w
 	image_raw_ds = image_raw.resize((int(w * ratio), int(h * ratio)), Image.ANTIALIAS)
 
-	filename = ARGS.folder + 'rawjpg/' + impath.replace("ARW","png")
-	filename_ds = ARGS.folder + 'rawjpg_ds/' + impath.replace("ARW","png")
+	p_folder = os.path.basename(os.path.dirname(ARGS.folder))
+	filename = save_folder + 'rawpng/' + impath.replace("ARW","png")
+	filename_ds = save_folder + 'rawpng_ds/' + impath.replace("ARW","png")
 	print("write to: %s"%(filename))
 	image_raw.save(filename)
 	image_raw_ds.save(filename_ds)

@@ -47,32 +47,33 @@ def read_paths(path, type='RAW'):
     return paths
 
 # read in input dict of image pairs with 2X zoom
-def read_input_2x(path):
+def read_input_2x(path_raw, path_process):
     input_dict = {}
-    fileid = int(os.path.basename(path).split('.')[0])
-    path2 = path.replace(os.path.basename(path).split('.')[0], "%05d"%(fileid+2))
-    path_ref = path.replace(os.path.basename(path).split('.')[0], "%05d"%(1))
+    fileid = int(os.path.basename(path_raw).split('.')[0])
+    path2_raw = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(fileid+2))
+    path_raw_ref = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(1))
     try:
-        focal1 = readFocal_pil(path)
-        focal2 = readFocal_pil(path2)
-        focal_ref = readFocal_pil(path_ref)
+        focal1 = readFocal_pil(path_raw)
+        focal2 = readFocal_pil(path2_raw)
+        focal_ref = readFocal_pil(path_raw_ref)
     except:
-        print('[x] Cannot open %s or %s'%(path, path2))
+        print('[x] Cannot open %s or %s'%(path_raw, path2_raw))
         return None
     
     ratio = focal1/focal2
     ratio_ref1 = focal_ref/focal1
     ratio_ref2 = focal_ref/focal2
-    src_path = path2
-    tar_path = path
+    src_path = path2_raw
+    tar_path = path_process
     
     print("Learn a zoom of %s from %s to %s"%(ratio, src_path, tar_path))
     input_dict['src_path'] = src_path
+    input_dict['tar_path_raw'] = path2_raw
     input_dict['tar_path'] = tar_path
     input_dict['ratio_ref1'] = ratio_ref1
     input_dict['ratio_ref2'] = ratio_ref2
     input_dict['ratio'] = ratio
-    input_dict['src_tform'] = get_tform(os.path.dirname(src_path)+'/tform.txt',
+    input_dict['src_tform'] = get_tform(os.path.dirname(tar_path)+'/tform.txt',
         key=os.path.basename(src_path).split('.')[0])
     input_dict['tar_tform'] = get_tform(os.path.dirname(tar_path)+'/tform.txt',
         key=os.path.basename(tar_path).split('.')[0])
@@ -129,8 +130,9 @@ def prepare_input(input_dict, tw=512, th=512, pw=512, ph=512, pre_crop=False):
     print("concat_tform",combined_tform)
 
     input_raw = get_bayer(input_dict['src_path'])
-    tar_raw = get_bayer(input_dict['tar_path'])
-    tar_rgb = tifffile.imread(os.path.dirname(input_dict['tar_path'])+'/rawjpg/'+os.path.basename(input_dict['tar_path'].split('.')[0]+'.tiff'))
+    tar_raw = get_bayer(input_dict['tar_path_raw'])
+    tar_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+os.path.basename(input_dict['tar_path'].split('.')[0]+'.png'))
+    tar_rgb = np.array(tar_rgb)
     input_raw_reshape = reshape_raw(input_raw)
     cropped_raw = crop_fov(input_raw_reshape, 1./input_dict['ratio_ref2'])
     cropped_rgb = crop_fov(tar_rgb, 1./input_dict['ratio_ref1'])
@@ -140,7 +142,7 @@ def prepare_input(input_dict, tw=512, th=512, pw=512, ph=512, pre_crop=False):
         input_raw, cropped_rgb = crop_raw_image(input_raw, cropped_rgb, 512, 512, type='central')
         if input_raw is None or cropped_rgb is None:
             return None, None
-    cropped_rgb = np.array(cropped_rgb,dtype=np.float32) / (255. * 255.)
+    cropped_rgb = image_float(cropped_rgb)
     cropped_rgb = np.expand_dims(cropped_rgb, axis=0)
     input_raw = np.expand_dims(cropped_raw, axis=0)
     out_dict['ratio_offset'] = ratio_offset

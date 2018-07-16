@@ -19,6 +19,7 @@ batch_size = 1
 pw, ph = 480, 480
 tw, th = 540, 540
 file_type='RAW'
+subfolder = 'dslr_10x_both'
 
 with tf.variable_scope(tf.get_variable_scope()):
     input_raw=tf.placeholder(tf.float32,shape=[batch_size,None,None,num_in_ch])
@@ -71,7 +72,7 @@ if mode == "train":
         cnt=0
         for id in np.random.permutation(num_train):
             if input_raw_img[id] is None:
-                train_input_path2 = utils.read_input_2x(train_input_paths[id])
+                train_input_path2 = utils.read_input_2x(train_input_paths[id], train_input_paths[id].replace(subfolder, subfolder+'_process/rawpng'))
                 if train_input_path2 is None:
                     continue
                 input_raw_img[id],target_rgb_img[id] = utils.prepare_input(train_input_paths[id], train_input_path2)

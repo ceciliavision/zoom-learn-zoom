@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from timeit import default_timer as timer
 import utils as utils
 
-# python ./main_align.py --folder /home/xuanerzh/Downloads/zoom/iphone2x_both/00055/ --rsz 3
+# python ./main_align.py --folder /home/xuanerzh/Downloads/zoom/iphone2x_both/00065/rawpng --rsz 3
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--folder", type=str, default="/home/xuanerzh/Downloads/compare/",
