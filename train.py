@@ -71,7 +71,7 @@ if mode == "train":
         cnt=0
         for id in np.random.permutation(num_train):
             if input_raw_img[id] is None:
-                train_input_path2 = utils.read_input_pair(train_input_paths[id])
+                train_input_path2 = utils.read_input_2x(train_input_paths[id])
                 if train_input_path2 is None:
                     continue
                 input_raw_img[id],target_rgb_img[id] = utils.prepare_input(train_input_paths[id], train_input_path2)

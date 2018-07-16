@@ -53,13 +53,17 @@ with open(ARGS.filetxt) as f:
                 ratio = 52/28.
             print("Image %s has focal length: %s "%(ARGS.path + line, img_f))
             print("Resize by ratio %s"%(ratio))
-            img_rgb_s = img_rgb.resize((int(img_rgb.width * ratio), int(img_rgb.height * ratio)), Image.ANTIALIAS)
             
-            left = int(abs(img_rgb.width - img_rgb_s.width)/2)
-            top = int(abs(img_rgb.height - img_rgb_s.height)/2)
-            right = left + img_rgb.width
-            bottom = top + img_rgb.height
+            cropped = utils.crop_fov(np.array(img_rgb), 1./ratio)
+            cropped = Image.fromarray(cropped)
 
-            cropped = img_rgb_s.crop((left, top, right, bottom))
-            cropped.save(ARGS.path + "cropped/%05d.png"%(1+i), quality=100)
+            img_rgb_s = cropped.resize((int(cropped.width * ratio), int(cropped.height * ratio)), Image.ANTIALIAS)
+            
+            # left = int(abs(img_rgb.width - img_rgb_s.width)/2)
+            # top = int(abs(img_rgb.height - img_rgb_s.height)/2)
+            # right = left + img_rgb.width
+            # bottom = top + img_rgb.height
+            # cropped = img_rgb_s.crop((left, top, right, bottom))
+            
+            img_rgb_s.save(ARGS.path + "cropped/%05d.png"%(1+i), quality=100)
             i += 1

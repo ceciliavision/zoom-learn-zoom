@@ -25,7 +25,6 @@ rand_gen = stats.truncnorm(
     (lower - mu) / sigma, (upper - mu) / sigma, loc=mu, scale=sigma)
 
 crop_sz = 512
-num_pairs = len(pair_tuple)
 
 ######### Util functions
 def is_image_file(filename):
@@ -47,13 +46,10 @@ def read_paths(path, type='RAW'):
                         paths.append(os.path.join(root, fname))
     return paths
 
-def read_input_pair(path):
+def read_input_2x(path):
     input_dict = {}
     fileid = int(os.path.basename(path).split('.')[0])
-    randid = np.random.randint(7) + 1
-    if randid == fileid:
-        return None
-    path2 = path.replace(os.path.basename(path).split('.')[0], "%05d"%(randid))
+    path2 = path.replace(os.path.basename(path).split('.')[0], "%05d"%(fileid+2))
     path_ref = path.replace(os.path.basename(path).split('.')[0], "%05d"%(1))
     try:
         focal1 = readFocal_pil(path)
@@ -63,31 +59,24 @@ def read_input_pair(path):
         print('[x] Cannot open %s or %s'%(path, path2))
         return None
     
-    if focal1 > focal2:
-        ratio = focal1/focal2
-        ratio_ref = focal_ref/focal1
-        src_path = path2
-        tar_path = path
-    else:
-        ratio = focal2/focal1
-        ratio_ref = focal_ref/focal2
-        src_path = path
-        tar_path = path2
+    ratio = focal1/focal2
+    ratio_ref1 = focal_ref/focal1
+    ratio_ref2 = focal_ref/focal2
+    src_path = path2
+    tar_path = path
     
-    if ratio > 1.9 and ratio < 4.5:
-        print("Learn a zoom of %s from %s to %s"%(ratio, src_path, tar_path))
-        input_dict['src_path'] = src_path
-        input_dict['tar_path'] = tar_path
-        input_dict['ratio_ref'] = ratio_ref
-        input_dict['ratio'] = ratio
-        input_dict['src_tform'] = get_tform(os.path.dirname(src_path)+'/tform.txt',
-            key=os.path.basename(src_path).split('.')[0])
-        input_dict['tar_tform'] = get_tform(os.path.dirname(tar_path)+'/tform.txt',
-            key=os.path.basename(tar_path).split('.')[0])
-        return input_dict
-    else:
-        return None
-
+    print("Learn a zoom of %s from %s to %s"%(ratio, src_path, tar_path))
+    input_dict['src_path'] = src_path
+    input_dict['tar_path'] = tar_path
+    input_dict['ratio_ref1'] = ratio_ref1
+    input_dict['ratio_ref2'] = ratio_ref2
+    input_dict['ratio'] = ratio
+    input_dict['src_tform'] = get_tform(os.path.dirname(src_path)+'/tform.txt',
+        key=os.path.basename(src_path).split('.')[0])
+    input_dict['tar_tform'] = get_tform(os.path.dirname(tar_path)+'/tform.txt',
+        key=os.path.basename(tar_path).split('.')[0])
+    return input_dict
+    
 def get_bayer(path):
     raw = rawpy.imread(path)
     bayer = raw.raw_image_visible.astype(np.float32)
@@ -106,39 +95,57 @@ def reshape_raw(bayer):
                        bayer[1:H:2,0:W:2,:]), axis=2)
     return reshaped
 
-def prepare_input(input_dict, tw, th, pw, ph, pre_crop=False):
-    input_dict = {}
+def prepare_input(input_dict, tw=512, th=512, pw=512, ph=512, pre_crop=False):
+    out_dict = {}
     ratio = input_dict['ratio']
-    ratio_ref = input_dict['ratio_ref']
-    ratio_ceil = np.ceil(ratio)
-    ratio_offset = ratio_ceil/ratio
-    scale_tform = np.eye(2, 3, dtype=np.float32)
-    scale_tform[0,0] = ratio_offset * ratio_ref
-    scale_tform[1,1] = ratio_offset * ratio_ref
-    inv_tar_tform = cv2.invertAffineTransform(input_dict['tar_tform'])
-    concat_tform = np.matmul(np.append(input_dict['src_tform'],[[0,0,1]],0),
-        np.append(scale_tform,[[0,0,1]],0))
-    concat_tform = np.matmul(np.append(inv_tar_tform,[[0,0,1]],0), concat_tform)
+    ratio_offset = 2./ratio
+    scale_inv_offset = get_scale(1./ratio_offset)
+    scale_ref = get_scale(input_dict['ratio_ref1'])
+    scale_inv_ref = get_scale(1./input_dict['ratio_ref1'])
+    inv_src_tform = cv2.invertAffineTransform(input_dict['src_tform'])
+    combined_tform = concat_tform([scale_ref,
+        np.append(inv_src_tform,[[0,0,1]],0),
+        np.append(input_dict['tar_tform'],[[0,0,1]],0),
+        scale_inv_ref,
+        scale_inv_offset])
+
+    # concat_tform = np.matmul(np.append(input_dict['tar_tform'],[[0,0,1]],0),
+    #     np.append(scale_offset,[[0,0,1]],0))
+    # concat_tform = np.matmul(np.append(inv_src_tform,[[0,0,1]],0), concat_tform)
+    print("concat_tform",combined_tform)
 
     input_raw = get_bayer(input_dict['src_path'])
     tar_raw = get_bayer(input_dict['tar_path'])
     tar_rgb = tifffile.imread(os.path.dirname(input_dict['tar_path'])+'/rawjpg/'+os.path.basename(input_dict['tar_path'].split('.')[0]+'.tiff'))
     input_raw_reshape = reshape_raw(input_raw)
-    cropped_raw = crop_raw(input_raw_reshape, 1./ratio)
+    cropped_raw = crop_fov(input_raw_reshape, 1./input_dict['ratio_ref2'])
+    cropped_rgb = crop_fov(tar_rgb, 1./input_dict['ratio_ref1'])
     tar_raw_reshape = reshape_raw(tar_raw)
 
     if pre_crop:
-        input_raw, tar_rgb = crop_raw_image(input_raw, tar_rgb, 512, 512, type='central')
-        if input_raw is None or tar_rgb is None:
+        input_raw, cropped_rgb = crop_raw_image(input_raw, cropped_rgb, 512, 512, type='central')
+        if input_raw is None or cropped_rgb is None:
             return None, None
-    tar_rgb = np.array(tar_rgb,dtype=np.float32) / 255.
-    tar_rgb = np.expand_dims(tar_rgb, axis=0)
+    cropped_rgb = np.array(cropped_rgb,dtype=np.float32) / (255. * 255.)
+    cropped_rgb = np.expand_dims(cropped_rgb, axis=0)
     input_raw = np.expand_dims(cropped_raw, axis=0)
-    input_dict['ratio_offset'] = ratio_offset
-    input_dict['input_raw'] = input_raw
-    input_dict['tar_rgb'] = tar_rgb
-    input_dict['tform'] = concat_tform[0:2,...]
-    return input_dict
+    out_dict['ratio_offset'] = ratio_offset
+    out_dict['input_raw'] = input_raw
+    out_dict['tar_rgb'] = cropped_rgb
+    out_dict['tform'] = combined_tform[0:2,...]
+    return out_dict
+
+def get_scale(ratio):
+    scale = np.eye(3, 3, dtype=np.float32)
+    scale[0,0] = ratio
+    scale[1,1] = ratio
+    return scale
+
+def concat_tform(tform_list):
+    tform_c = tform_list[0]
+    for tform in tform_list[1:]:
+        tform_c = np.matmul(tform, tform_c)
+    return tform_c
 
 # 35mm equivalent focal length
 def readFocal_pil(image_path):
@@ -166,15 +173,16 @@ def crop_raw_image(raw, image, croph, cropw, type='central'):
         area = (sy*2, sx*2, sy*2+cropw*2, sx*2+croph*2)
     return raw[sx:sx+croph, sy:sy+cropw,...], image.crop(area)
 
-def crop_raw(raw, ratio):
-    width, height = raw.shape[:2]
+def crop_fov(image, ratio):
+    width, height = image.shape[:2]
     new_width = width * ratio
     new_height = height * ratio
     left = np.ceil((width - new_width)/2.)
     top = np.ceil((height - new_height)/2.)
     right = np.floor((width + new_width)/2.)
     bottom = np.floor((height + new_height)/2.)
-    cropped = raw[top:bottom, left:right, ...]
+    # print("Cropping boundary: ", top, bottom, left, right)
+    cropped = image[int(left):int(right), int(top):int(bottom), ...]
     return cropped
 
 # image_set: a list of images
@@ -296,12 +304,17 @@ def apply_transform(image_set, tform_set, tform_inv_set, t_type, scale=1.):
 
     return image_t_set, tform_set_2, tform_inv_set_2
 
+# images don't need to have same size
 def sum_aligned_image(image_aligned, image_set):
-    sum_img = np.float32(image_aligned[0]) * 1. / len(image_aligned)
+    sum_img = np.float32(image_set[0]) * 1. / len(image_aligned)
     sum_img_t = np.float32(image_aligned[0]) * 1. / len(image_aligned)
+    identity_transform = np.eye(2, 3, dtype=np.float32)
+    r, c = image_set[0].shape[0:2]
     for i in range(1, len(image_aligned)):
         sum_img_t += np.float32(image_aligned[i]) * 1. / len(image_aligned)
-        sum_img += np.float32(image_set[i]) * 1. / len(image_aligned)
+        image_set_i = cv2.warpAffine(image_set[i], identity_transform, (c, r),
+            flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+        sum_img += np.float32(image_set_i) * 1. / len(image_aligned)
     return sum_img_t, sum_img
 
 def align_rigid(image_set, images_gray_set, ref_ind, thre=0.05):

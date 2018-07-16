@@ -11,5 +11,5 @@ do
     num=$(find $dest_dir -maxdepth 1 -name '*.ARW' | wc -l)
     echo $num
     
-    python ./main_raw.py --folder $dest_dir
+    python ./main_raw.py --folder $dest_dir --new_w 512
 done

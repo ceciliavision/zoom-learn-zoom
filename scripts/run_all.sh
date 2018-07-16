@@ -15,6 +15,6 @@ do
     echo $num
     python ./main_crop.py --path $dest_dir --filetxt ${dest_base}filename.txt --num $num --ext JPG
     python ./main_align.py --folder $dest_dir --model ECC --rsz 4
-    python ./main_raw.py --folder $dest_dir
+    python ./main_raw.py --folder $dest_dir --new_w 512
 done
 

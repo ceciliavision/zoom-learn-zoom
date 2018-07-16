@@ -5,7 +5,7 @@
 # src_dir=/home/xuanerzh/Downloads/temp/*.JPG
 # dest_base=/home/xuanerzh/Downloads/zoom/iphone2x_both/
 filetype='.JPG'
-src_dir=/media/xuanerzh/9C33-6BBD/DCIM/100MSDCF/*$filetype
+src_dir=/media/xuanerzh/9C33-6BBD/DCIM/100MSDCF/714-7/*$filetype
 dest_base=/home/xuanerzh/Downloads/zoom/dslr_10x_both/
 # src_dir=/Users/ceciliazhang/Desktop/spring2018/batch_3-1/*.CR2
 # dest_base=/Users/ceciliazhang/GoogleDrive/Research_Projects/sequence2
@@ -14,7 +14,7 @@ devicetype=${2:-dslr}
 atfile=0
 
 # start folder id
-atdir=60
+atdir=73
 
 echo "Source dir: " $src_dir
 echo "Device type: " $2
