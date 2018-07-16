@@ -46,6 +46,7 @@ def read_paths(path, type='RAW'):
                         paths.append(os.path.join(root, fname))
     return paths
 
+# read in input dict of image pairs with 2X zoom
 def read_input_2x(path):
     input_dict = {}
     fileid = int(os.path.basename(path).split('.')[0])
@@ -77,6 +78,19 @@ def read_input_2x(path):
         key=os.path.basename(tar_path).split('.')[0])
     return input_dict
     
+# 35mm equivalent focal length
+def readFocal_pil(image_path):
+    if 'ARW' in image_path:
+        image_path = image_path.replace('ARW','JPG')
+    img = Image.open(image_path)
+    exif_data = img._getexif()
+    return exif_data[FOCAL_CODE][0]/exif_data[FOCAL_CODE][1]
+
+def readOrien_pil(image_path):
+    img = Image.open(image_path)
+    exif_data = img._getexif()
+    return exif_data[ORIEN_CODE]
+
 def get_bayer(path):
     raw = rawpy.imread(path)
     bayer = raw.raw_image_visible.astype(np.float32)
@@ -147,19 +161,6 @@ def concat_tform(tform_list):
         tform_c = np.matmul(tform, tform_c)
     return tform_c
 
-# 35mm equivalent focal length
-def readFocal_pil(image_path):
-    if 'ARW' in image_path:
-        image_path = image_path.replace('ARW','JPG')
-    img = Image.open(image_path)
-    exif_data = img._getexif()
-    return exif_data[FOCAL_CODE][0]/exif_data[FOCAL_CODE][1]
-
-def readOrien_pil(image_path):
-    img = Image.open(image_path)
-    exif_data = img._getexif()
-    return exif_data[ORIEN_CODE]
-
 # PIL image format
 def crop_raw_image(raw, image, croph, cropw, type='central'):
     height, width = raw.shape[:2]
@@ -195,7 +196,10 @@ def bgr_gray(image_set):
     return image_gray_set
 
 def image_float(image):
-    image = image.astype(np.float32) / 255
+    if image.dtype is np.dtype(np.uint16):
+        image = image.astype(np.float32) / (255*255)
+    elif image.dtype is np.dtype(np.uint8):
+        image = image.astype(np.float32) / 255
     return image
 
 def image_uint8(image):

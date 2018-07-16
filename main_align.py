@@ -34,7 +34,7 @@ images = []
 image_ds = []
 
 allfiles=os.listdir(folder + 'cropped/')
-imlist=[filename for filename in allfiles if filename[-4:] in [".jpg", ".JPG",".png",".PNG"]]
+imlist=[filename for filename in allfiles if filename[-4:] in [".jpg", ".JPG",".png",".PNG","tiff","TIFF"]]
 num_img = len(imlist)
 
 for impath in sorted(imlist):

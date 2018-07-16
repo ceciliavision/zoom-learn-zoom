@@ -1,7 +1,7 @@
 import rawpy, argparse, os
 import numpy as np
 from PIL import Image
-import tifffile
+# import tifffile
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--folder", type=str, default="/home/xuanerzh/Downloads/compare/",
@@ -26,14 +26,18 @@ for impath in sorted(imlist):
 	image_raw = raw.postprocess(gamma=(1,1),
 		no_auto_bright=True,
 		use_camera_wb=False,
-		output_bps=16)
+		output_bps=8)
 	
-	w,h = image_raw.shape[:2]
+	image_raw = Image.fromarray(image_raw)
+	w,h = image_raw.width, image_raw.height
 	ratio = ARGS.new_w / w
-	image_raw_ds = Image.fromarray(image_raw).resize((int(w * ratio), int(h * ratio)), Image.ANTIALIAS)
+	image_raw_ds = image_raw.resize((int(w * ratio), int(h * ratio)), Image.ANTIALIAS)
 
-	filename = ARGS.folder + 'rawjpg/' + impath.replace("ARW","tiff")
-	filename_ds = ARGS.folder + 'rawjpg_ds/' + impath.replace("ARW","tiff")
+	filename = ARGS.folder + 'rawjpg/' + impath.replace("ARW","png")
+	filename_ds = ARGS.folder + 'rawjpg_ds/' + impath.replace("ARW","png")
 	print("write to: %s"%(filename))
-	tifffile.imsave(filename, np.array(image_raw))
-	tifffile.imsave(filename_ds, np.array(image_raw_ds))
+	image_raw.save(filename)
+	image_raw_ds.save(filename_ds)
+
+	# tifffile.imsave(filename, np.array(image_raw))
+	# tifffile.imsave(filename_ds, np.array(image_raw_ds))
