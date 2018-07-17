@@ -1,8 +1,8 @@
 #!/bin/bash
 # iphone2x_both      dslr_10x_both
 src_base=/home/xuanerzh/Downloads/zoom/dslr_10x_both/
-sfolder=1
-efolder=105
+sfolder=105
+efolder=132
 
 for (( i=sfolder; i<=efolder; i++))
 do

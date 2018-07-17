@@ -7,7 +7,7 @@ from PIL import Image
 import numpy as np
 from timeit import default_timer as timer
 import scipy.stats as stats
-import tifffile
+# import tifffile
 
 ######### Local Vars
 FOCAL_CODE = 37386
@@ -66,6 +66,10 @@ def read_input_2x(path_raw, path_process):
                 return None
     except:
         print('[x] Cannot open %s or %s'%(path_raw, path2_raw))
+        return None
+    
+    if not os.path.isfile(os.path.dirname(path_process)+'/tform.txt'):
+        print('[x] Cannot open %s'%(os.path.dirname(path_process)+'/tform.txt'))
         return None
     
     ratio_ref1 = focal_ref/focal1
@@ -412,4 +416,4 @@ def post_process_rgb(target_rgb, out_size, tform):
     transformed_corner = get_transformed_corner(tform, out_size[0], out_size[1])
     target_rgb_process = target_rgb_warp[transformed_corner['minw']:transformed_corner['maxw'],
         transformed_corner['minh']:transformed_corner['maxh'],:]
-    return target_rgb_process
+    return target_rgb_process, transformed_corner
