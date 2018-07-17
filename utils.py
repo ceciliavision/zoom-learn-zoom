@@ -56,11 +56,18 @@ def read_input_2x(path_raw, path_process):
         focal1 = readFocal_pil(path_raw)
         focal2 = readFocal_pil(path2_raw)
         focal_ref = readFocal_pil(path_raw_ref)
+        ratio = focal1/focal2
+        if ratio > 2.5:
+            path2_raw = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(fileid+2))
+            try:
+                focal2 = readFocal_pil(path2_raw)
+            except:
+                print('[x] Cannot open %s or %s'%(path_raw, path2_raw))
+                return None
     except:
         print('[x] Cannot open %s or %s'%(path_raw, path2_raw))
         return None
     
-    ratio = focal1/focal2
     ratio_ref1 = focal_ref/focal1
     ratio_ref2 = focal_ref/focal2
     src_path = path2_raw
@@ -73,9 +80,9 @@ def read_input_2x(path_raw, path_process):
     input_dict['ratio_ref1'] = ratio_ref1
     input_dict['ratio_ref2'] = ratio_ref2
     input_dict['ratio'] = ratio
-    input_dict['src_tform'] = get_tform(os.path.dirname(tar_path)+'/tform.txt',
+    input_dict['src_tform'] = read_tform(os.path.dirname(tar_path)+'/tform.txt',
         key=os.path.basename(src_path).split('.')[0])
-    input_dict['tar_tform'] = get_tform(os.path.dirname(tar_path)+'/tform.txt',
+    input_dict['tar_tform'] = read_tform(os.path.dirname(tar_path)+'/tform.txt',
         key=os.path.basename(tar_path).split('.')[0])
     return input_dict
     
@@ -114,9 +121,9 @@ def prepare_input(input_dict, tw=512, th=512, pw=512, ph=512, pre_crop=False):
     out_dict = {}
     ratio = input_dict['ratio']
     ratio_offset = 2./ratio
-    scale_inv_offset = get_scale(1./ratio_offset)
-    scale_ref = get_scale(input_dict['ratio_ref1'])
-    scale_inv_ref = get_scale(1./input_dict['ratio_ref1'])
+    scale_inv_offset = get_scale_matrix(1./ratio_offset)
+    scale_ref = get_scale_matrix(input_dict['ratio_ref1'])
+    scale_inv_ref = get_scale_matrix(1./input_dict['ratio_ref1'])
     inv_src_tform = cv2.invertAffineTransform(input_dict['src_tform'])
     combined_tform = concat_tform([scale_ref,
         np.append(inv_src_tform,[[0,0,1]],0),
@@ -151,7 +158,7 @@ def prepare_input(input_dict, tw=512, th=512, pw=512, ph=512, pre_crop=False):
     out_dict['tform'] = combined_tform[0:2,...]
     return out_dict
 
-def get_scale(ratio):
+def get_scale_matrix(ratio):
     scale = np.eye(3, 3, dtype=np.float32)
     scale[0,0] = ratio
     scale[1,1] = ratio
@@ -210,7 +217,7 @@ def image_uint8(image):
     image = (image * 255).astype(np.uint8)
     return image
 
-def get_tform(txtfile, key, model='ECC'):
+def read_tform(txtfile, key, model='ECC'):
     if model in ['ECC', 'RIGID']:
         tform = np.eye(2, 3, dtype=np.float32)
     else:
@@ -223,58 +230,7 @@ def get_tform(txtfile, key, model='ECC'):
                     tform[i,:] = nextline.split()
     return tform
 
-def get_feature(image, feature_type):
-    # Initiate detector
-    if feature_type is "ORB":
-        feat = cv2.ORB_create()
-    elif feature_type is "SURF":
-        feat = cv2.SURF(400)
-    else:
-        feat = cv2.SIFT()
-
-    # find the keypoints
-    key_pts = feat.detect(image, None)
-    # compute the descriptors with ORB
-    key_pts, key_descriptors = feat.compute(image, key_pts)  # key_pts correspondes to struct in MATLAB
-    return key_descriptors, key_pts
-
-# check
-def get_transform(ref_descriptors, ref_pts, image_set, t_type="rigid", feature_type='ORB'):
-    img_num = len(image_set)
-    tform_set = []
-    tform_inv_set = []
-    for i in range (img_num):
-        base_image = image_set[i]
-        query_pts, query_descriptors = get_feature(base_image, "ORB")
-        bf_matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        matches_features = bf_matcher.match(query_descriptors, ref_descriptors) # query to train
-        avg_distance = 1e-6 + sum(m.distance for m in matches_features)/len(matches_features)
-        matches_good = []
-        for m in matches_features:
-            if m.distance < avg_distance * 1. / 3:
-                matches_good.append(m)
-
-        num_matches_good = len(matches_good)
-        print("Extracted %d good matches" % num_matches_good)
-        query_match_pts = np.array(list(query_pts[m.queryIdx].pt for m in matches_good))
-        ref_match_pts = np.array(list(ref_pts[m.trainIdx].pt for m in matches_good))
-        ratio = max(ref_match_pts.max(), query_match_pts.max())//255 + 1
-        query_match_pts_scale = (query_match_pts/ratio).astype(np.uint8).reshape(2,num_matches_good)
-        ref_match_pts_scale = (ref_match_pts/ratio).astype(np.uint8).reshape(2,num_matches_good)
-
-        if t_type == "rigid":
-            tform = cv2.estimateRigidTransform(query_match_pts_scale, ref_match_pts_scale, True) # query to train
-        elif t_type == "homography":
-            tform, status = cv2.findHomography(query_match_pts, ref_match_pts)
-        else:
-            tform = cv2.estimateRigidTransform(query_match_pts_scale, ref_match_pts_scale, False)
-
-        # print(tform)
-        tform_set.append(tform)
-        tform_inv_set.append(cv2.invertAffineTransform(tform))
-    return tform_set, tform_inv_set
-
-# check
+### CHECK
 def apply_transform(image_set, tform_set, tform_inv_set, t_type, scale=1.):
     tform_set_2 = tform_set
     tform_inv_set_2 = tform_inv_set
@@ -310,6 +266,7 @@ def apply_transform(image_set, tform_set, tform_inv_set, t_type, scale=1.):
 
     return image_t_set, tform_set_2, tform_inv_set_2
 
+### CHECK 
 # images don't need to have same size
 def sum_aligned_image(image_aligned, image_set):
     sum_img = np.float32(image_set[0]) * 1. / len(image_aligned)
@@ -323,6 +280,7 @@ def sum_aligned_image(image_aligned, image_set):
         sum_img += np.float32(image_set_i) * 1. / len(image_aligned)
     return sum_img_t, sum_img
 
+### CHECK
 def align_rigid(image_set, images_gray_set, ref_ind, thre=0.05):
     img_num = len(image_set)
     ref_gray_image = images_gray_set[ref_ind]
@@ -368,6 +326,7 @@ def align_rigid(image_set, images_gray_set, ref_ind, thre=0.05):
             continue
     return tform_set, tform_inv_set, valid_id
 
+### CHECK
 def align_ecc(image_set, images_gray_set, ref_ind, thre=0.05):
     img_num = len(image_set)
     # select the image as reference
@@ -425,3 +384,32 @@ def align_ecc(image_set, images_gray_set, ref_ind, thre=0.05):
         else:
             continue
     return tform_set, tform_inv_set, valid_id
+
+### CHECK
+def get_transformed_corner(tform, h, w):
+    corner = np.array([[0,0,w,w],[0,h,0,h],[1,1,1,1]])
+    inv_tform = cv2.invertAffineTransform(tform)
+    corner_t = np.matmul(np.vstack([np.array(inv_tform),[0,0,1]]),corner)
+    min_w = np.max(corner_t[0,[0,1]])
+    min_w = int(np.max(np.ceil(min_w),0))
+    min_h = np.max(corner_t[1,[0,2]])
+    min_h = int(np.max(np.ceil(min_h),0))
+    max_w = np.min(corner_t[0,[2,3]])
+    max_w = int(np.floor(max_w))
+    max_h = np.min(corner_t[1,[1,3]])
+    max_h = int(np.floor(max_h))
+    tformed = {}
+    tformed['minw'] = max(0,min_w)
+    tformed['maxw'] = min(w,max_w)
+    tformed['minh'] = max(0,min_h)
+    tformed['maxh'] = min(h,max_h)
+    return tformed
+
+### CHECK
+def post_process_rgb(target_rgb, out_size, tform):
+    target_rgb_warp = cv2.warpAffine(target_rgb, tform, (out_size[0], out_size[1]),
+        flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+    transformed_corner = get_transformed_corner(tform, out_size[0], out_size[1])
+    target_rgb_process = target_rgb_warp[transformed_corner['minw']:transformed_corner['maxw'],
+        transformed_corner['minh']:transformed_corner['maxh'],:]
+    return target_rgb_process

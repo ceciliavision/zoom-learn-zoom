@@ -69,5 +69,6 @@ while i < ARGS.num:
     # bottom = top + img_rgb.height
     # cropped = img_rgb_s.crop((left, top, right, bottom))
     
+    print("Write to %s"%(ARGS.path + "cropped/%05d.%s"%(1+i,ARGS.ext)))
     img_rgb_s.save(ARGS.path + "cropped/%05d.%s"%(1+i,ARGS.ext), quality=100)
     i += 1
