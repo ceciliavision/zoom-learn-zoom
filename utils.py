@@ -153,8 +153,6 @@ def prepare_input(input_dict, pw=512, ph=512, tol=32, pre_crop=False):
     tar_raw_reshape = reshape_raw(tar_raw)
 
     cropped_rgb = image_float(cropped_rgb)
-    cropped_rgb = np.expand_dims(cropped_rgb, axis=0)
-    cropped_raw = np.expand_dims(cropped_raw, axis=0)
     out_dict['ratio_offset'] = ratio_offset
     out_dict['input_raw'] = cropped_raw
     out_dict['tar_rgb'] = cropped_rgb
@@ -177,6 +175,8 @@ def concat_tform(tform_list):
 
 # PIL image format
 def crop_pair(raw, image, croph, cropw, tol=32, ratio=2, type='central'):
+    is_pad_h = False
+    is_pad_w = False
     if type == 'central':
         rand_p = rand_gen.rvs(2)
     elif type == 'uniform':
@@ -194,6 +194,11 @@ def crop_pair(raw, image, croph, cropw, tol=32, ratio=2, type='central'):
     if croph_rgb > height_rgb:
         sx_rgb = 0
         sx_raw = int(tol/2.)
+        is_pad_h = True
+        pad_h1_rgb = int((croph_rgb-height_rgb)/2)
+        pad_h2_rgb = int(croph_rgb-height_rgb-pad_h1_rgb)
+        pad_h1_raw = int(np.ceil(pad_h1_rgb/(2*ratio)))
+        pad_h2_raw = int(np.ceil(pad_h2_rgb/(2*ratio)))
     else:
         sx_rgb = int((height_rgb - croph_rgb) * rand_p[0])
         sx_raw = int((sx_rgb + tol)/(2*ratio))
@@ -201,6 +206,11 @@ def crop_pair(raw, image, croph, cropw, tol=32, ratio=2, type='central'):
     if cropw_rgb > width_rgb:
         sy_rgb = 0 
         sy_raw = int(tol/2.)
+        is_pad_w = True
+        pad_w1_rgb = int((cropw_rgb-width_rgb)/2)
+        pad_w2_rgb = int(cropw_rgb-width_rgb-pad_w1_rgb)
+        pad_w1_raw = int(np.ceil(pad_w1_rgb/(2*ratio)))
+        pad_w2_raw = int(np.ceil(pad_w2_rgb/(2*ratio)))
     else:
         sy_rgb = int((width_rgb - cropw_rgb) * rand_p[1])
         sy_raw = int((sy_rgb + tol)/(2*ratio))
@@ -208,9 +218,24 @@ def crop_pair(raw, image, croph, cropw, tol=32, ratio=2, type='central'):
     sy = int((width_raw - cropw) * rand_p[1])
     # print("raw cropping params: ", raw.shape, sx_raw, croph_raw, sy_raw, cropw_raw)
     # print("rgb cropping params: ", image.shape, sx_rgb, croph_rgb, sy_rgb, cropw_rgb)
-    raw_cropped = raw[sx_raw:sx_raw+croph_raw, sy_raw:sy_raw+cropw_raw,...]
-    image_cropped = image[sx_rgb:sx_rgb+croph_rgb, sy_rgb:sy_rgb+cropw_rgb,...]
-    return raw_cropped, image_cropped
+    raw_cropped = raw
+    rgb_cropped = image
+    if is_pad_h:
+        print("Pad h with:", (pad_h1_rgb, pad_h2_rgb),(pad_h1_raw, pad_h2_raw))
+        rgb_cropped = np.pad(image, pad_width=((pad_h1_rgb, pad_h2_rgb),(0, 0),(0,0)),
+            mode='constant', constant_values=0)
+        raw_cropped = np.pad(raw, pad_width=((pad_h1_raw, pad_h2_raw),(0, 0),(0,0)),
+            mode='constant', constant_values=0)
+    if is_pad_w:
+        print("Pad w with:", (pad_w1_rgb, pad_w2_rgb),(pad_w1_raw, pad_w2_raw))
+        rgb_cropped = np.pad(image, pad_width=((0, 0),(pad_w1_rgb, pad_w2_rgb),(0,0)),
+            mode='constant', constant_values=0)
+        raw_cropped = np.pad(raw, pad_width=((0, 0),(pad_w1_raw, pad_w2_raw),(0,0)),
+            mode='constant', constant_values=0)
+    raw_cropped = raw_cropped[sx_raw:sx_raw+croph_raw, sy_raw:sy_raw+cropw_raw,...]
+    rgb_cropped = rgb_cropped[sx_rgb:sx_rgb+croph_rgb, sy_rgb:sy_rgb+cropw_rgb,...]
+
+    return raw_cropped, rgb_cropped
 
 ### CHECK
 def crop_fov(image, ratio):

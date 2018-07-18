@@ -15,7 +15,7 @@ subfolder = 'dslr_10x_both'
 maxepoch = 200
 
 num_channels = 64
-save_freq = 20
+save_freq = 2
 num_in_ch = 4
 num_out_ch = 48
 batch_size = 1
@@ -37,7 +37,7 @@ with tf.variable_scope(tf.get_variable_scope()):
         input_channel=num_in_ch,
         output_channel=num_out_ch,
         reuse=False,
-        num_layer=6)
+        num_layer=5)
     # print("network output shape: ", out_rgb.get_shape)
     # out_rgb = tf_crop_image(out_rgb, crop_box)
     # print("cropped output shape: ", out_rgb.get_shape)
@@ -94,14 +94,14 @@ if mode == "train":
                     continue
 
                 # prepare input to pre-align
-                row, col = input_raw_img_orig.shape[1:3]
-                target_rgb_img_orig, transformed_corner = utils.post_process_rgb(target_rgb_img_orig[0,...],
+                row, col = input_raw_img_orig.shape[0:2]
+                target_rgb_img_orig, transformed_corner = utils.post_process_rgb(target_rgb_img_orig,
                     (int(col*2*up_ratio),int(row*2*up_ratio)), processed_dict['tform'])
                 print(row, col, transformed_corner)
-                input_raw_img_orig = input_raw_img_orig[:,int(transformed_corner['minw']/(2*up_ratio)):int(transformed_corner['maxw']/(2*up_ratio)),
+                input_raw_img_orig = input_raw_img_orig[int(transformed_corner['minw']/(2*up_ratio)):int(transformed_corner['maxw']/(2*up_ratio)),
                     int(transformed_corner['minh']/(2*up_ratio)):int(transformed_corner['maxh']/(2*up_ratio)),:]
                 print(input_raw_img_orig.shape)
-                cropped_raw, cropped_rgb = utils.crop_pair(input_raw_img_orig[0,...], target_rgb_img_orig, 
+                cropped_raw, cropped_rgb = utils.crop_pair(input_raw_img_orig, target_rgb_img_orig, 
                     croph=tar_h, cropw=tar_w, tol=tol, ratio=up_ratio, type='central')
                 target_rgb_img[id] = np.expand_dims(cropped_rgb, 0)
                 input_raw_img[id] = np.expand_dims(cropped_raw, 0)
@@ -118,7 +118,7 @@ if mode == "train":
                 # crop_box_input = np.array([transformed_corner['minw'], transformed_corner['minh'],
                 #     transformed_corner['maxh']-transformed_corner['minh'], transformed_corner['maxw'] - transformed_corner['minw']])
                 # crop_box_input = np.expand_dims(crop_box_input, 0).astype(np.int32)
-                # print("Processed image shapes: ", input_raw_img[id].shape, target_rgb_img[id].shape, crop_box_input)
+                print("Processed image shapes: ", input_raw_img[id].shape, target_rgb_img[id].shape)
 
                 file=os.path.splitext(os.path.basename(train_input_paths[id]))[0]
                 fetch_list=[opt,objDict,lossDict]
@@ -134,7 +134,7 @@ if mode == "train":
                         out_lossDict["l1"],
                         np.mean(all_loss[np.where(all_loss)]),
                         time.time()-st))
-                if is_debug and cnt % 200 == 0:
+                if is_debug and cnt % 50 == 0:
                     output_rgb = out_objDict["out_rgb"][0,...]*255
                     src_raw = Image.fromarray(np.uint8(input_raw_img[id][0,...,0]*255))
                     tartget_rgb = Image.fromarray(np.uint8(target_rgb_img[id][0,...]*255))
