@@ -2,6 +2,7 @@
 __pycache__
 *.pyc
 *.swp
+model/*.pyc
 
 # OS generated files #
 ######################

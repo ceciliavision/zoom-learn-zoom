@@ -141,7 +141,7 @@ def prepare_input(input_dict, pw=512, ph=512, tol=32, pre_crop=False):
     # concat_tform = np.matmul(np.append(input_dict['tar_tform'],[[0,0,1]],0),
     #     np.append(scale_offset,[[0,0,1]],0))
     # concat_tform = np.matmul(np.append(inv_src_tform,[[0,0,1]],0), concat_tform)
-    print("concat_tform",combined_tform)
+    # print("concat_tform",combined_tform)
 
     input_raw = get_bayer(input_dict['src_path'])
     tar_raw = get_bayer(input_dict['tar_path_raw'])

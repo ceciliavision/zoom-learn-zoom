@@ -12,9 +12,10 @@ mode = 'train'
 task = 'restore_vanilla'
 train_root = ['/home/xuanerzh/Downloads/zoom/dslr_10x_both/'] # path to raw files
 subfolder = 'dslr_10x_both'
+maxepoch = 200
 
 num_channels = 64
-save_freq = 10
+save_freq = 20
 num_in_ch = 4
 num_out_ch = 48
 batch_size = 1
@@ -36,18 +37,18 @@ with tf.variable_scope(tf.get_variable_scope()):
         input_channel=num_in_ch,
         output_channel=num_out_ch,
         reuse=False,
-        num_layer=8)
+        num_layer=6)
     # print("network output shape: ", out_rgb.get_shape)
     # out_rgb = tf_crop_image(out_rgb, crop_box)
     # print("cropped output shape: ", out_rgb.get_shape)
 
-    # loss_context=losses.compute_unalign_loss(out_rgb, target_rgb, pw, ph, tw, th, losstype='l1', align=False)
-    loss_l1=losses.compute_l1_loss(out_rgb, target_rgb)
+    loss_context=losses.compute_unalign_loss(out_rgb, target_rgb, tar_h=tar_h, tar_w=tar_w, tol=tol, losstype='l1', stride=2)
+    # loss_l1=losses.compute_l1_loss(out_rgb, target_rgb)
 
     objDict = {}
     lossDict = {}
     objDict['out_rgb'] = out_rgb
-    lossDict['l1'] = loss_l1
+    lossDict['l1'] = loss_context
     # lossDict['context'] = loss_context
     loss_sum = sum(lossDict.values())
     lossDict['total'] = loss_sum
@@ -66,7 +67,6 @@ if ckpt and continue_training:
     saver_restore.restore(sess,ckpt.model_checkpoint_path)
 
 train_input_paths=utils.read_paths(train_root, type=file_type)
-maxepoch=100
 num_train=len(train_input_paths)
 print("Number of training images: ", num_train)
 if mode == "train":
@@ -88,7 +88,7 @@ if mode == "train":
                     continue
                 processed_dict = utils.prepare_input(input_dict)
                 input_raw_img_orig,target_rgb_img_orig = processed_dict['input_raw'], processed_dict['tar_rgb']
-                print("Read in image shapes:",train_input_paths[id], input_raw_img_orig.shape, target_rgb_img_orig.shape)
+                # print("Read in image shapes:",train_input_paths[id], input_raw_img_orig.shape, target_rgb_img_orig.shape)
                 if input_raw_img_orig is None or target_rgb_img_orig is None:
                     print('Invalid input raw or rgb for %s'%(train_input_paths[id]))
                     continue
@@ -97,12 +97,14 @@ if mode == "train":
                 row, col = input_raw_img_orig.shape[1:3]
                 target_rgb_img_orig, transformed_corner = utils.post_process_rgb(target_rgb_img_orig[0,...],
                     (int(col*2*up_ratio),int(row*2*up_ratio)), processed_dict['tform'])
-                input_raw_img_orig = input_raw_img_orig[int(transformed_corner['minw']/(2*up_ratio)):int(transformed_corner['maxw']/(2*up_ratio)),
-                    int(transformed_corner['minh']/4):int(transformed_corner['maxh']/4)]
-                cropped_raw, cropped_rgb = utils.crop_pair(input_raw_img_orig, target_rgb_img_orig, 
+                print(row, col, transformed_corner)
+                input_raw_img_orig = input_raw_img_orig[:,int(transformed_corner['minw']/(2*up_ratio)):int(transformed_corner['maxw']/(2*up_ratio)),
+                    int(transformed_corner['minh']/(2*up_ratio)):int(transformed_corner['maxh']/(2*up_ratio)),:]
+                print(input_raw_img_orig.shape)
+                cropped_raw, cropped_rgb = utils.crop_pair(input_raw_img_orig[0,...], target_rgb_img_orig, 
                     croph=tar_h, cropw=tar_w, tol=tol, ratio=up_ratio, type='central')
                 target_rgb_img[id] = np.expand_dims(cropped_rgb, 0)
-                input_raw_img[id] = cropped_raw
+                input_raw_img[id] = np.expand_dims(cropped_raw, 0)
 
                 # ratio = 4
                 # input_raw_img_orig = Image.fromarray(input_raw_img_orig[0,...,0])
@@ -132,14 +134,13 @@ if mode == "train":
                         out_lossDict["l1"],
                         np.mean(all_loss[np.where(all_loss)]),
                         time.time()-st))
-                if is_debug and cnt % 5 == 0:
-                    # output_rgb = out_objDict["out_rgb"][0,...]*255
-                    # output_rgb = Image.fromarray(np.uint8(output_rgb))
+                if is_debug and cnt % 200 == 0:
+                    output_rgb = out_objDict["out_rgb"][0,...]*255
                     src_raw = Image.fromarray(np.uint8(input_raw_img[id][0,...,0]*255))
                     tartget_rgb = Image.fromarray(np.uint8(target_rgb_img[id][0,...]*255))
-                    # output_rgb.save("/home/xuanerzh/tmp/out_rgb_%d.png"%(cnt))
-                    src_raw.save("/home/xuanerzh/tmp/out_raw_%d.png"%(cnt))
-                    tartget_rgb.save("/home/xuanerzh/tmp/tar_rgb_%d.png"%(cnt))
+                    Image.fromarray(np.uint8(output_rgb)).save("/home/xuanerzh/tmp/out_rgb_%d_%d.png"%(epoch, cnt))
+                    src_raw.save("/home/xuanerzh/tmp/src_raw_%d_%d.png"%(epoch, cnt))
+                    tartget_rgb.save("/home/xuanerzh/tmp/tar_rgb_%d_%d.png"%(epoch, cnt))
                 target_buffer = target_rgb_img[id]
                 input_raw_img[id]=1.
                 target_rgb_img[id]=1.
@@ -149,12 +150,15 @@ if mode == "train":
                 os.makedirs("%s/%04d"%(task,epoch))
             saver.save(sess,"%s/model.ckpt"%task)
             saver.save(sess,"%s/%04d/model.ckpt"%(task,epoch))
-            output_rgb = out_objDict["out_rgb"][0,...]*255
-            output_rgb = Image.fromarray(np.uint8(output_rgb))
-            tartget_rgb = target_buffer[0,...]*255
-            tartget_rgb = Image.fromarray(np.uint8(tartget_rgb))
-            output_rgb.save("%s/%04d/out_rgb.png"%(task,epoch))
-            tartget_rgb.save("%s/%04d/tar_rgb.png"%(task,epoch))
+            try:
+                output_rgb = out_objDict["out_rgb"][0,...]*255
+                output_rgb = Image.fromarray(np.uint8(output_rgb))
+                tartget_rgb = target_buffer[0,...]*255
+                tartget_rgb = Image.fromarray(np.uint8(tartget_rgb))
+                output_rgb.save("%s/%04d/out_rgb.png"%(task,epoch))
+                tartget_rgb.save("%s/%04d/tar_rgb.png"%(task,epoch))
+            except:
+                print("Failed to write image footprint. ;(")
 
 else:
     test_folder = 'test'

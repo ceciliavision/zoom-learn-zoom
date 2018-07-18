@@ -6,23 +6,23 @@ vgg_rawnet = scipy.io.loadmat('VGG_Model/imagenet-vgg-verydeep-19.mat')
 print("Loaded vgg19 pretrained imagenet")
 
 # 1xWxHx3
-def compute_unalign_loss(prediction, target, pw, ph, tw, th, stride=1, losstype='l1', align=False):
-	num_tiles = abs(tw-pw) * abs(th-ph)
-	multiples = tf.constant([num_tiles, 1, 1, 1])
-	prediction_tiles = tf.tile(prediction, multiples, name='pred_tile')
-	target_tiles = tf.tile(target, multiples, name='tar_tile')
-	translations = [[-i,-j] for i in range(0,abs(tw-pw),stride) for j in range(0,abs(th-ph),stride)]
-	target_tiles_translate = tf.contrib.image.translate(target_tiles,
-		translations,
-		interpolation='BILINEAR')
-	target_tiles_cropped = tf.slice(target_tiles_translate, [0, 0, 0, 0], [num_tiles, ph, pw, 3])
-	if losstype == 'l1':
-		diff_tiles = tf.reduce_sum(target_tiles_cropped - prediction_tiles, [1, 2, 3])
-	elif losstype == 'percep':
-		diff_percep = compute_percep_loss(target_tiles_cropped, prediction_tiles, withl1=True)
-		diff_tiles = tf.reduce_sum(diff_percep, [1,2,3])
-	loss = tf.reduce_min(diff_tiles)
-	return loss
+def compute_unalign_loss(prediction, target, tar_w, tar_h, tol, stride=1, losstype='l1'):
+    num_tiles = (tol*2/stride) * (tol*2/stride)
+    multiples = tf.constant([num_tiles, 1, 1, 1])
+    prediction_tiles = tf.tile(prediction, multiples, name='pred_tile')
+    target_tiles = tf.tile(target, multiples, name='tar_tile')
+    translations = [[-i,-j] for i in range(0,(tol*2),stride) for j in range(0,(tol*2),stride)]
+    target_tiles_translate = tf.contrib.image.translate(target_tiles,
+        translations,
+        interpolation='BILINEAR')
+    target_tiles_cropped = tf.slice(target_tiles_translate, [0, 0, 0, 0], [num_tiles, tar_h, tar_w, 3])
+    if losstype == 'l1':
+        diff_tiles = tf.reduce_mean(tf.abs(target_tiles_cropped - prediction_tiles), [1, 2, 3])
+    elif losstype == 'percep':
+        diff_percep = compute_percep_loss(target_tiles_cropped, prediction_tiles, withl1=True)
+        diff_tiles = tf.reduce_mean(diff_percep, [1,2,3])
+    loss = tf.reduce_min(diff_tiles)
+    return loss
 
 def build_net(ntype,nin,nwb=None,name=None):
     if ntype=='conv':
