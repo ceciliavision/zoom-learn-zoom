@@ -29,7 +29,7 @@ def tf_crop_image(img, crop):
 with tf.variable_scope(tf.get_variable_scope()):
     input_raw=tf.placeholder(tf.float32,shape=[batch_size,None,None,num_in_ch])
     target_rgb=tf.placeholder(tf.float32,shape=[batch_size,None,None,3])
-    crop_box=tf.placeholder(tf.int32,shape=[batch_size,4])
+    # crop_box=tf.placeholder(tf.int32,shape=[batch_size,4])
 
     out_rgb=net.build_unet(input_raw,
         channel=num_channels,
@@ -37,9 +37,9 @@ with tf.variable_scope(tf.get_variable_scope()):
         output_channel=num_out_ch,
         reuse=False,
         num_layer=8)
-    print("network output shape: ", out_rgb.get_shape)
-    out_rgb = tf_crop_image(out_rgb, crop_box)
-    print("cropped output shape: ", out_rgb.get_shape)
+    # print("network output shape: ", out_rgb.get_shape)
+    # out_rgb = tf_crop_image(out_rgb, crop_box)
+    # print("cropped output shape: ", out_rgb.get_shape)
 
     # loss_context=losses.compute_unalign_loss(out_rgb, target_rgb, pw, ph, tw, th, losstype='l1', align=False)
     loss_l1=losses.compute_l1_loss(out_rgb, target_rgb)
@@ -97,6 +97,8 @@ if mode == "train":
                 row, col = input_raw_img_orig.shape[1:3]
                 target_rgb_img_orig, transformed_corner = utils.post_process_rgb(target_rgb_img_orig[0,...],
                     (int(col*2*up_ratio),int(row*2*up_ratio)), processed_dict['tform'])
+                input_raw_img_orig = input_raw_img_orig[int(transformed_corner['minw']/(2*up_ratio)):int(transformed_corner['maxw']/(2*up_ratio)),
+                    int(transformed_corner['minh']/4):int(transformed_corner['maxh']/4)]
                 cropped_raw, cropped_rgb = utils.crop_pair(input_raw_img_orig, target_rgb_img_orig, 
                     croph=tar_h, cropw=tar_w, tol=tol, ratio=up_ratio, type='central')
                 target_rgb_img[id] = np.expand_dims(cropped_rgb, 0)
@@ -111,25 +113,25 @@ if mode == "train":
                 # input_raw_img[id] = input_raw_img_orig[:,transformed_corner['minw']:transformed_corner['maxw'],
                 #     transformed_corner['minh']:transformed_corner['maxh'],:]
 
-                crop_box_input = np.array([transformed_corner['minw'], transformed_corner['minh'],
-                    transformed_corner['maxh']-transformed_corner['minh'], transformed_corner['maxw'] - transformed_corner['minw']])
-                crop_box_input = np.expand_dims(crop_box_input, 0).astype(np.int32)
-                print("Processed image shapes: ", input_raw_img[id].shape, target_rgb_img[id].shape, crop_box_input)
+                # crop_box_input = np.array([transformed_corner['minw'], transformed_corner['minh'],
+                #     transformed_corner['maxh']-transformed_corner['minh'], transformed_corner['maxw'] - transformed_corner['minw']])
+                # crop_box_input = np.expand_dims(crop_box_input, 0).astype(np.int32)
+                # print("Processed image shapes: ", input_raw_img[id].shape, target_rgb_img[id].shape, crop_box_input)
 
                 file=os.path.splitext(os.path.basename(train_input_paths[id]))[0]
                 fetch_list=[opt,objDict,lossDict]
                 st=time.time()
                 _,out_objDict,out_lossDict=sess.run(fetch_list,feed_dict=
-                    {input_raw:input_raw_img[id],target_rgb:target_rgb_img[id], crop_box:crop_box_input})
+                    {input_raw:input_raw_img[id],target_rgb:target_rgb_img[id]})
                 all_loss[id]=out_lossDict["total"]
 
                 cnt+=1
                 
-                # print("iter: %d %d || loss: (t) %.4f (l1) %.4f || mean: %.4f || time: %.2f"%
-                #     (epoch,cnt,out_lossDict["total"],
-                #         out_lossDict["l1"],
-                #         np.mean(all_loss[np.where(all_loss)]),
-                #         time.time()-st))
+                print("iter: %d %d || loss: (t) %.4f (l1) %.4f || mean: %.4f || time: %.2f"%
+                    (epoch,cnt,out_lossDict["total"],
+                        out_lossDict["l1"],
+                        np.mean(all_loss[np.where(all_loss)]),
+                        time.time()-st))
                 if is_debug and cnt % 5 == 0:
                     # output_rgb = out_objDict["out_rgb"][0,...]*255
                     # output_rgb = Image.fromarray(np.uint8(output_rgb))

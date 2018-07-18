@@ -50,6 +50,8 @@ def read_paths(path, type='RAW'):
 def read_input_2x(path_raw, path_process):
     input_dict = {}
     fileid = int(os.path.basename(path_raw).split('.')[0])
+    if fileid >= 5:
+        return None
     path2_raw = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(fileid+2))
     path_raw_ref = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(1))
     try:
