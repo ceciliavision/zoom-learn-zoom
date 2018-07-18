@@ -121,10 +121,11 @@ def reshape_raw(bayer):
                        bayer[1:H:2,0:W:2,:]), axis=2)
     return reshaped
 
-def prepare_input(input_dict, tw=512, th=512, pw=512, ph=512, pre_crop=False):
+### CHECK
+def prepare_input(input_dict, pw=512, ph=512, tol=32, pre_crop=False):
     out_dict = {}
     ratio = input_dict['ratio']
-    ratio_offset = 2./ratio
+    ratio_offset = 2./ratio ####### HHH #######
     scale_inv_offset = get_scale_matrix(1./ratio_offset)
     scale_ref = get_scale_matrix(input_dict['ratio_ref1'])
     scale_inv_ref = get_scale_matrix(1./input_dict['ratio_ref1'])
@@ -149,25 +150,23 @@ def prepare_input(input_dict, tw=512, th=512, pw=512, ph=512, pre_crop=False):
     cropped_rgb = crop_fov(tar_rgb, 1./input_dict['ratio_ref1'])
     tar_raw_reshape = reshape_raw(tar_raw)
 
-    if pre_crop:
-        input_raw, cropped_rgb = crop_raw_image(input_raw, cropped_rgb, 512, 512, type='central')
-        if input_raw is None or cropped_rgb is None:
-            return None, None
     cropped_rgb = image_float(cropped_rgb)
     cropped_rgb = np.expand_dims(cropped_rgb, axis=0)
-    input_raw = np.expand_dims(cropped_raw, axis=0)
+    cropped_raw = np.expand_dims(cropped_raw, axis=0)
     out_dict['ratio_offset'] = ratio_offset
-    out_dict['input_raw'] = input_raw
+    out_dict['input_raw'] = cropped_raw
     out_dict['tar_rgb'] = cropped_rgb
     out_dict['tform'] = combined_tform[0:2,...]
     return out_dict
 
+### CHECK
 def get_scale_matrix(ratio):
     scale = np.eye(3, 3, dtype=np.float32)
     scale[0,0] = ratio
     scale[1,1] = ratio
     return scale
 
+### CHECK
 def concat_tform(tform_list):
     tform_c = tform_list[0]
     for tform in tform_list[1:]:
@@ -175,18 +174,43 @@ def concat_tform(tform_list):
     return tform_c
 
 # PIL image format
-def crop_raw_image(raw, image, croph, cropw, type='central'):
-    height, width = raw.shape[:2]
-    if croph > height or cropw > width:
-        print("Image too small to have the specified crop sizes.")
-        return None
+def crop_pair(raw, image, croph, cropw, tol=32, ratio=2, type='central'):
     if type == 'central':
         rand_p = rand_gen.rvs(2)
-        sx = int((height - croph) * rand_p[0])
-        sy = int((width - cropw) * rand_p[1])
-        area = (sy*2, sx*2, sy*2+cropw*2, sx*2+croph*2)
-    return raw[sx:sx+croph, sy:sy+cropw,...], image.crop(area)
+    elif type == 'uniform':
+        rand_p = np.random.rand(2)
+    
+    height_raw, width_raw = raw.shape[:2]
+    height_rgb, width_rgb = image.shape[:2]
+    if croph > height_raw * 2*ratio or cropw > width_raw * 2*ratio:
+        print("Image too small to have the specified crop sizes.")
+        return None, None
+    croph_rgb = croph + tol * 2
+    cropw_rgb = cropw + tol * 2
+    croph_raw = int(croph/(ratio*2))
+    cropw_raw = int(cropw/(ratio*2))
+    if croph_rgb > height_rgb:
+        sx_rgb = 0
+        sx_raw = int(tol/2.)
+    else:
+        sx_rgb = int((height_rgb - croph_rgb) * rand_p[0])
+        sx_raw = int((sx_rgb + tol)/(2*ratio))
+    
+    if cropw_rgb > width_rgb:
+        sy_rgb = 0 
+        sy_raw = int(tol/2.)
+    else:
+        sy_rgb = int((width_rgb - cropw_rgb) * rand_p[1])
+        sy_raw = int((sy_rgb + tol)/(2*ratio))
+    
+    sy = int((width_raw - cropw) * rand_p[1])
+    # print("raw cropping params: ", raw.shape, sx_raw, croph_raw, sy_raw, cropw_raw)
+    # print("rgb cropping params: ", image.shape, sx_rgb, croph_rgb, sy_rgb, cropw_rgb)
+    raw_cropped = raw[sx_raw:sx_raw+croph_raw, sy_raw:sy_raw+cropw_raw,...]
+    image_cropped = image[sx_rgb:sx_rgb+croph_rgb, sy_rgb:sy_rgb+cropw_rgb,...]
+    return raw_cropped, image_cropped
 
+### CHECK
 def crop_fov(image, ratio):
     width, height = image.shape[:2]
     new_width = width * ratio
@@ -199,6 +223,7 @@ def crop_fov(image, ratio):
     cropped = image[int(left):int(right), int(top):int(bottom), ...]
     return cropped
 
+### CHECK
 # image_set: a list of images
 def bgr_gray(image_set):
     img_num = len(image_set)
@@ -208,6 +233,7 @@ def bgr_gray(image_set):
         image_gray_set.append(image_gray_i)
     return image_gray_set
 
+### CHECK
 def image_float(image):
     if image.dtype is np.dtype(np.uint16):
         image = image.astype(np.float32) / (255*255)
@@ -215,12 +241,14 @@ def image_float(image):
         image = image.astype(np.float32) / 255
     return image
 
+### CHECK
 def image_uint8(image):
     if image.max() > 10:
         return image
     image = (image * 255).astype(np.uint8)
     return image
 
+### CHECK
 def read_tform(txtfile, key, model='ECC'):
     if model in ['ECC', 'RIGID']:
         tform = np.eye(2, 3, dtype=np.float32)
@@ -228,7 +256,7 @@ def read_tform(txtfile, key, model='ECC'):
         tform = np.eye(3, 3, dtype=np.float32)
     with open(txtfile) as f:
         for l in f:
-            if key in l:
+            if "00001-"+key in l:
                 for i in range(tform.shape[0]):
                     nextline = next(f)
                     tform[i,:] = nextline.split()

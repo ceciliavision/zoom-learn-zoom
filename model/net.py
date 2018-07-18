@@ -135,7 +135,7 @@ def build_unet(input, channel=64, input_channel=3, output_channel=3,reuse=False,
     with tf.variable_scope("decoder_last"):
         output_final = slim.conv2d(output, output_channel, 3, 1, activation_fn=None)
 
-    out = tf.depth_to_space(output_final, 2)
+    out = tf.depth_to_space(output_final, 4)
 
     return out
 

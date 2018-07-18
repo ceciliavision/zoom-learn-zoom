@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+import scipy.io
 
 vgg_rawnet = scipy.io.loadmat('VGG_Model/imagenet-vgg-verydeep-19.mat')
 print("Loaded vgg19 pretrained imagenet")
