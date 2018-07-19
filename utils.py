@@ -147,14 +147,20 @@ def prepare_input(input_dict, pw=512, ph=512, tol=32, pre_crop=False):
     tar_raw = get_bayer(input_dict['tar_path_raw'])
     tar_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+os.path.basename(input_dict['tar_path'].split('.')[0]+'.png'))
     tar_rgb = np.array(tar_rgb)
+    input_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+os.path.basename(input_dict['src_path'].split('.')[0]+'.png'))
+    print("input rgb path:", os.path.dirname(input_dict['tar_path'])+'/'+os.path.basename(input_dict['src_path'].split('.')[0]+'.png'))
+    input_rgb = np.array(input_rgb)
     input_raw_reshape = reshape_raw(input_raw)
     cropped_raw = crop_fov(input_raw_reshape, 1./input_dict['ratio_ref2'])
     cropped_rgb = crop_fov(tar_rgb, 1./input_dict['ratio_ref1'])
+    cropped_input_rgb = crop_fov(input_rgb, 1./input_dict['ratio_ref2'])
     tar_raw_reshape = reshape_raw(tar_raw)
 
     cropped_rgb = image_float(cropped_rgb)
+    cropped_input_rgb = image_float(cropped_input_rgb)
     out_dict['ratio_offset'] = ratio_offset
     out_dict['input_raw'] = cropped_raw
+    out_dict['input_rgb'] = cropped_input_rgb
     out_dict['tar_rgb'] = cropped_rgb
     out_dict['tform'] = combined_tform[0:2,...]
     return out_dict
@@ -488,3 +494,8 @@ def unaligned_loss(prediction, target, tar_w, tar_h, tol, stride=1):
     loss = shifted_loss.min()
     mini, minj = np.unravel_index(shifted_loss.argmin(), shifted_loss.shape)
     return canvas, loss, mini*stride, minj*stride
+
+def apply_gamma(image, gamma=2.2):
+    if image.max() > 5:
+        image = image_float(image)
+    return image**(1/gamma)
