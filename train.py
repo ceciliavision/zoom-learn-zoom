@@ -15,7 +15,8 @@ subfolder = 'dslr_10x_both'
 maxepoch = 200
 
 num_channels = 64
-save_freq = 2
+save_freq = 2   # unit: epoch
+save_img_freq = 200   #unit: step
 num_in_ch = 4
 num_out_ch = 48
 batch_size = 1
@@ -134,7 +135,7 @@ if mode == "train":
                         out_lossDict["l1"],
                         np.mean(all_loss[np.where(all_loss)]),
                         time.time()-st))
-                if is_debug and cnt % 50 == 0:
+                if is_debug and cnt % save_img_freq == 0:
                     output_rgb = out_objDict["out_rgb"][0,...]*255
                     src_raw = Image.fromarray(np.uint8(input_raw_img[id][0,...,0]*255))
                     tartget_rgb = Image.fromarray(np.uint8(target_rgb_img[id][0,...]*255))

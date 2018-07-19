@@ -472,3 +472,19 @@ def post_process_rgb(target_rgb, out_size, tform):
     target_rgb_process = target_rgb_warp[transformed_corner['minw']:transformed_corner['maxw'],
         transformed_corner['minh']:transformed_corner['maxh'],:]
     return target_rgb_process, transformed_corner
+
+
+def unaligned_loss(prediction, target, tar_w, tar_h, tol, stride=1):
+    min_error = 1000000
+    canvas = np.zeros((tar_w, tar_h, prediction.shape[-1]))
+    shifted_loss = np.zeros((int(tol*2/stride), int(tol*2/stride)))
+    for idi,i in enumerate(range(0,(tol*2),stride)):
+        for idj,j in enumerate(range(0,(tol*2),stride)):
+            canvas[i:i+prediction.shape[0],j:j+prediction.shape[1],:] = prediction
+            shifted_loss[idi,idj] = (abs((target-canvas)[i:i+prediction.shape[0],j:j+prediction.shape[1],:])).mean()
+            # print(i,j,shifted_loss[idi,idj])
+            if shifted_loss[idi,idj] < min_error:
+                image_min = canvas
+    loss = shifted_loss.min()
+    mini, minj = np.unravel_index(shifted_loss.argmin(), shifted_loss.shape)
+    return canvas, loss, mini*stride, minj*stride

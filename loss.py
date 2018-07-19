@@ -7,7 +7,7 @@ print("Loaded vgg19 pretrained imagenet")
 
 # 1xWxHx3
 def compute_unalign_loss(prediction, target, tar_w, tar_h, tol, stride=1, losstype='l1'):
-    num_tiles = (tol*2/stride) * (tol*2/stride)
+    num_tiles = int(tol*2/stride) * int(tol*2/stride)
     multiples = tf.constant([num_tiles, 1, 1, 1])
     prediction_tiles = tf.tile(prediction, multiples, name='pred_tile')
     target_tiles = tf.tile(target, multiples, name='tar_tile')
@@ -20,7 +20,8 @@ def compute_unalign_loss(prediction, target, tar_w, tar_h, tol, stride=1, lossty
         diff_tiles = tf.reduce_mean(tf.abs(target_tiles_cropped - prediction_tiles), [1, 2, 3])
     elif losstype == 'percep':
         diff_percep = compute_percep_loss(target_tiles_cropped, prediction_tiles, withl1=True)
-        diff_tiles = tf.reduce_mean(diff_percep, [1,2,3])
+        # print(diff_percep.shape)
+        diff_tiles = tf.reduce_mean(diff_percep, [1, 2, 3])
     loss = tf.reduce_min(diff_tiles)
     return loss
 
@@ -78,7 +79,7 @@ def compute_percep_loss(input, output, withl1=False, reuse=False):
         return p1+p2+p3+p4+p5
 
 def compute_l1_loss(input, output):
-    loss=tf.reduce_mean(tf.abs(input-output))
+    loss=tf.reduce_mean(tf.abs(input-output), [1,2,3], keepdims=True)
     return loss
 
 def compute_l2_loss(input, output):
