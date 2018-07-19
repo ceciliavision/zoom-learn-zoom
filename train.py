@@ -9,13 +9,13 @@ from PIL import Image
 is_debug = True
 continue_training = False
 mode = 'train'
-task = 'restore_vanilla'
-train_root = ['/home/xuanerzh/Downloads/zoom/dslr_10x_both/'] # path to raw files
+task = 'restore_percep'
+train_root = ['/export/vcl-nfs2/shared/xuanerzh/zoom/dslr_10x_both/'] # path to raw files
 subfolder = 'dslr_10x_both'
-maxepoch = 200
+maxepoch = 100
 
 num_channels = 64
-save_freq = 2
+save_freq = 20
 num_in_ch = 4
 num_out_ch = 48
 batch_size = 1
@@ -42,7 +42,7 @@ with tf.variable_scope(tf.get_variable_scope()):
     # out_rgb = tf_crop_image(out_rgb, crop_box)
     # print("cropped output shape: ", out_rgb.get_shape)
 
-    loss_context=losses.compute_unalign_loss(out_rgb, target_rgb, tar_h=tar_h, tar_w=tar_w, tol=tol, losstype='l1', stride=2)
+    loss_context=losses.compute_unalign_loss(out_rgb, target_rgb, tar_h=tar_h, tar_w=tar_w, tol=tol, losstype='percep', stride=2)
     # loss_l1=losses.compute_l1_loss(out_rgb, target_rgb)
 
     objDict = {}
