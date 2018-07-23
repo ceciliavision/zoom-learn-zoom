@@ -4,6 +4,21 @@ from __future__ import print_function
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
+def upsample(batch_input, in_channels, out_channels, sp=512, type='deconv'):
+	if type == 'deconv':
+		upsampled = deconv(batch_input, in_channels, out_channels)
+	elif type == 'bilinear':
+		upsampled = tf.image.resize_bilinear(batch_input, [sp,sp], align_corners=True)
+		upsampled = conv2(upsampled, in_channels, out_channels, stride=1, fsz=3)
+	elif type == 'subpixel':
+		upsampled = conv(upsampled, in_channels, out_channels*4, stride=1)
+		upsampled = tf.depth_to_space(upsampled, 2)
+	else:
+		print("Not recognized upsample type.")
+		exit()
+	
+	return upsampled
+
 def conv(batch_input, in_channels, out_channels, stride):
     with tf.variable_scope("conv"):
         # in_channels = batch_input.get_shape()[3]
@@ -64,7 +79,7 @@ def deconv(batch_input, in_channels, out_channels):
         conv = tf.nn.conv2d_transpose(batch_input, filter, [batch, in_height * 2, in_width * 2, out_channels], [1, 2, 2, 1], padding="SAME")
         return conv
 
-def build_unet(input, channel=64, input_channel=3, output_channel=3,reuse=False,num_layer=9):
+def build_unet(input, channel=64, input_channel=3, output_channel=3, reuse=False, num_layer=9, up_type='deconv'):
     if reuse:
         tf.get_variable_scope().reuse_variables()
     layers = []
@@ -104,6 +119,7 @@ def build_unet(input, channel=64, input_channel=3, output_channel=3,reuse=False,
         (channel * 2, channel, 0.0),       # decoder_2: [batch, 256, 256, channel * 2 * 2] => [batch, 128, 128, channel * 2]
     ]
 
+    sp = int(128//(2**num_layer))
     num_encoder_layers = len(layers)
     for decoder_layer, (in_channels, out_channels, dropout) in enumerate(layer_specs[9-num_layer:]):
         skip_layer = num_encoder_layers - decoder_layer - 1
@@ -118,7 +134,7 @@ def build_unet(input, channel=64, input_channel=3, output_channel=3,reuse=False,
                 in_channels = in_channels * 2
             rectified = tf.nn.relu(in_layer)
             # [batch, in_height, in_width, in_channels] => [batch, in_height*2, in_width*2, out_channels]
-            output = deconv(rectified, in_channels, out_channels)
+            output = upsample(rectified, in_channels, out_channels, int(sp*2**decoder_layer), up_type)
             output = batchnorm(output, out_channels)
 
             if dropout > 0.0:
@@ -129,7 +145,7 @@ def build_unet(input, channel=64, input_channel=3, output_channel=3,reuse=False,
     with tf.variable_scope("decoder_1"):
         in_layer = tf.concat([layers[-1], layers[0]], axis=3)
         rectified = tf.nn.relu(in_layer)
-        output = deconv(rectified, channel*2, channel)
+        output = upsample(rectified, channel*2, channel, 128, up_type)
         output = tf.reshape(output, [1,tf.shape(output)[1],tf.shape(output)[2],channel])
 
     with tf.variable_scope("decoder_last"):

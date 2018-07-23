@@ -17,13 +17,16 @@ def compute_unalign_loss(prediction, target, tar_w, tar_h, tol, stride=1, lossty
         interpolation='BILINEAR')
     target_tiles_cropped = tf.slice(target_tiles_translate, [0, 0, 0, 0], [num_tiles, tar_h, tar_w, 3])
     if losstype == 'l1':
-        diff_tiles = tf.reduce_mean(tf.abs(target_tiles_cropped - prediction_tiles), [1, 2, 3])
+        diff_tiles = tf.reduce_mean(tf.abs(target_tiles_cropped - prediction_tiles), [1, 2, 3], keepdims=True)
     elif losstype == 'percep':
-        diff_percep = compute_percep_loss(target_tiles_cropped, prediction_tiles, withl1=True)
-        # print(diff_percep.shape)
-        diff_tiles = tf.reduce_mean(diff_percep, [1, 2, 3])
+        features = ["conv1_2", "conv2_2"]
+        diff_percep = compute_percep_loss(target_tiles_cropped, prediction_tiles, features, withl1=True)
+        # print("diff_percep shape: ", diff_percep.shape)
+        diff_tiles = tf.reduce_mean(diff_percep, [1, 2, 3], keepdims=True)
     loss = tf.reduce_min(diff_tiles)
-    return loss
+    argmin = tf.argmin(diff_tiles, axis=0)
+    # print("argmin: ", diff_tiles, argmin)
+    return loss, argmin
 
 def build_net(ntype,nin,nwb=None,name=None):
     if ntype=='conv':
@@ -64,19 +67,23 @@ def build_vgg19(input,reuse=False):
     net['conv5_2']=build_net('conv',net['conv5_1'],get_weight_bias(vgg_layers,30),name='vgg_conv5_2')
     return net
 
-def compute_percep_loss(input, output, withl1=False, reuse=False):
+def compute_percep_loss(input, output, features, withl1=False, reuse=False):
     vgg_real=build_vgg19(output*255.0,reuse=reuse)
     vgg_fake=build_vgg19(input*255.0,reuse=True)
-    p0=compute_l1_loss(vgg_real['input'],vgg_fake['input'])
-    p1=compute_l1_loss(vgg_real['conv1_2'],vgg_fake['conv1_2'])/2.6
-    p2=compute_l1_loss(vgg_real['conv2_2'],vgg_fake['conv2_2'])/4.8
-    p3=compute_l1_loss(vgg_real['conv3_2'],vgg_fake['conv3_2'])/3.7
-    p4=compute_l1_loss(vgg_real['conv4_2'],vgg_fake['conv4_2'])/5.6
-    p5=compute_l1_loss(vgg_real['conv5_2'],vgg_fake['conv5_2'])*10/1.5
+    loss_sum = 0
     if withl1:
-        return p0+p1+p2+p3+p4+p5
-    else:
-        return p1+p2+p3+p4+p5
+        loss_sum += compute_l1_loss(vgg_real['input'],vgg_fake['input'])
+    if "conv1_2" in features:
+        loss_sum += compute_l1_loss(vgg_real['conv1_2'],vgg_fake['conv1_2'])/2.6
+    if "conv2_2" in features:
+        loss_sum += compute_l1_loss(vgg_real['conv2_2'],vgg_fake['conv2_2'])/4.8
+    if "conv3_2" in features:
+        loss_sum += compute_l1_loss(vgg_real['conv3_2'],vgg_fake['conv3_2'])/3.7
+    if "conv4_2" in features:
+        loss_sum += compute_l1_loss(vgg_real['conv4_2'],vgg_fake['conv4_2'])/5.6
+    if "conv5_2" in features:
+        loss_sum += compute_l1_loss(vgg_real['conv5_2'],vgg_fake['conv5_2'])*10/1.5
+    return loss_sum
 
 def compute_l1_loss(input, output):
     loss=tf.reduce_mean(tf.abs(input-output), [1,2,3], keepdims=True)

@@ -80,7 +80,7 @@ def read_input_2x(path_raw, path_process):
     tar_path = path_process
     
     print("Learn a zoom of %s from %s to %s"%(ratio, src_path, tar_path))
-    input_dict['src_path'] = src_path
+    input_dict['src_path_raw'] = src_path
     input_dict['tar_path_raw'] = path2_raw
     input_dict['tar_path'] = tar_path
     input_dict['ratio_ref1'] = ratio_ref1
@@ -123,6 +123,30 @@ def reshape_raw(bayer):
                        bayer[1:H:2,0:W:2,:]), axis=2)
     return reshaped
 
+def reshape_back_raw(bayer):
+    H = bayer.shape[0]
+    W = bayer.shape[1]
+    newH = int(H*2)
+    newW = int(W*2)
+    bayer_back = np.zeros((newH, newW))
+    bayer_back[0:newH:2,0:newW:2] = bayer[...,0]
+    bayer_back[0:newH:2,1:newW:2] = bayer[...,1]
+    bayer_back[1:newH:2,1:newW:2] = bayer[...,2]
+    bayer_back[1:newH:2,0:newW:2] = bayer[...,3]
+    return bayer_back
+
+def write_raw(source_raw, target_raw_path):
+    target_raw = rawpy.imread(target_raw_path)
+    H, W = source_raw.shape[:2]
+    for indi,i in enumerate(range(H)):
+        for indj,j in enumerate(range(W)):
+            target_raw.raw_image_visible[indi, indj] = source_raw[i, j] * (16383 - 512) + 512
+    rgb = target_raw.postprocess(gamma=(1,1),
+        no_auto_bright=True,
+        use_camera_wb=False,
+        output_bps=8)
+    return rgb
+
 ### CHECK
 def prepare_input(input_dict, pw=512, ph=512, tol=32, pre_crop=False):
     out_dict = {}
@@ -143,12 +167,12 @@ def prepare_input(input_dict, pw=512, ph=512, tol=32, pre_crop=False):
     # concat_tform = np.matmul(np.append(inv_src_tform,[[0,0,1]],0), concat_tform)
     # print("concat_tform",combined_tform)
 
-    input_raw = get_bayer(input_dict['src_path'])
+    input_raw = get_bayer(input_dict['src_path_raw'])
     tar_raw = get_bayer(input_dict['tar_path_raw'])
     tar_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+os.path.basename(input_dict['tar_path'].split('.')[0]+'.png'))
     tar_rgb = np.array(tar_rgb)
-    input_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+os.path.basename(input_dict['src_path'].split('.')[0]+'.png'))
-    print("input rgb path:", os.path.dirname(input_dict['tar_path'])+'/'+os.path.basename(input_dict['src_path'].split('.')[0]+'.png'))
+    input_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.png'))
+    print("input rgb path:", os.path.dirname(input_dict['tar_path'])+'/'+os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.png'))
     input_rgb = np.array(input_rgb)
     input_raw_reshape = reshape_raw(input_raw)
     cropped_raw = crop_fov(input_raw_reshape, 1./input_dict['ratio_ref2'])
@@ -331,6 +355,10 @@ def apply_transform(image_set, tform_set, tform_inv_set, t_type, scale=1.):
 
     return image_t_set, tform_set_2, tform_inv_set_2
 
+def apply_transform_single(image, tform, c, r):
+    return cv2.warpAffine(image, tform, (c, r),
+        flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+
 ### CHECK 
 # images don't need to have same size
 def sum_aligned_image(image_aligned, image_set):
@@ -479,22 +507,24 @@ def post_process_rgb(target_rgb, out_size, tform):
         transformed_corner['minh']:transformed_corner['maxh'],:]
     return target_rgb_process, transformed_corner
 
-
+### CHECK
 def unaligned_loss(prediction, target, tar_w, tar_h, tol, stride=1):
     min_error = 1000000
-    canvas = np.zeros((tar_w, tar_h, prediction.shape[-1]))
     shifted_loss = np.zeros((int(tol*2/stride), int(tol*2/stride)))
     for idi,i in enumerate(range(0,(tol*2),stride)):
         for idj,j in enumerate(range(0,(tol*2),stride)):
+            canvas = np.zeros((tar_w, tar_h, prediction.shape[-1]))
             canvas[i:i+prediction.shape[0],j:j+prediction.shape[1],:] = prediction
             shifted_loss[idi,idj] = (abs((target-canvas)[i:i+prediction.shape[0],j:j+prediction.shape[1],:])).mean()
-            # print(i,j,shifted_loss[idi,idj])
+            print(i,j,shifted_loss[idi,idj])
             if shifted_loss[idi,idj] < min_error:
                 image_min = canvas
+                min_error = shifted_loss[idi,idj]
     loss = shifted_loss.min()
     mini, minj = np.unravel_index(shifted_loss.argmin(), shifted_loss.shape)
-    return canvas, loss, mini*stride, minj*stride
+    return image_min, loss, mini*stride, minj*stride
 
+### CHECK
 def apply_gamma(image, gamma=2.2):
     if image.max() > 5:
         image = image_float(image)
