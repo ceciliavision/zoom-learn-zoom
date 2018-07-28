@@ -2,8 +2,8 @@
 # iphone2x_both_process      dslr_10x_both_process
 src_base=/home/xuanerzh/Downloads/zoom/dslr_10x_both/
 dest_base=/home/xuanerzh/Downloads/zoom/dslr_10x_both_process/
-sfolder=105
-efolder=132
+sfolder=133
+efolder=209
 
 for (( i=sfolder; i<=efolder; i++))
 do

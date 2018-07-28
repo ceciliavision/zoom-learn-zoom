@@ -305,6 +305,10 @@ def image_uint8(image):
     image = (image * 255).astype(np.uint8)
     return image
 
+
+def clipped(image):
+    return np.minimum(np.maximum(image,0.0),1.0)
+
 ### CHECK
 def read_tform(txtfile, key, model='ECC'):
     if model in ['ECC', 'RIGID']:

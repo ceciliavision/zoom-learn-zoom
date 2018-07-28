@@ -1,11 +1,23 @@
 import numpy as np
 import tensorflow as tf
 import scipy.io
+from CX.CX_helper import *
+from CX.enums import TensorAxis, Distance
+from easydict import EasyDict as edict
 
 vgg_rawnet = scipy.io.loadmat('VGG_Model/imagenet-vgg-verydeep-19.mat')
 print("Loaded vgg19 pretrained imagenet")
 
 # 1xWxHx3
+def learn_align(prediction, target, tar_w, tar_h):
+    shift = tf.Variable(tf.random_normal([1, 2]), name="shift")
+    translated_image = tf.contrib.image.translate(target,
+        shift,
+        interpolation='BILINEAR')
+    cropped_image = tf.slice(translated_image, [0, 0, 0, 0], [1, tar_h, tar_w, 3])
+    loss = tf.reduce_mean(tf.abs(cropped_image - prediction))
+    return loss, cropped_image
+
 def compute_unalign_loss(prediction, target, tar_w, tar_h, tol, stride=1, losstype='l1'):
     num_tiles = int(tol*2/stride) * int(tol*2/stride)
     multiples = tf.constant([num_tiles, 1, 1, 1])
@@ -16,17 +28,21 @@ def compute_unalign_loss(prediction, target, tar_w, tar_h, tol, stride=1, lossty
         translations,
         interpolation='BILINEAR')
     target_tiles_cropped = tf.slice(target_tiles_translate, [0, 0, 0, 0], [num_tiles, tar_h, tar_w, 3])
-    if losstype == 'l1':
-        diff_tiles = tf.reduce_mean(tf.abs(target_tiles_cropped - prediction_tiles), [1, 2, 3], keepdims=True)
-    elif losstype == 'percep':
+    diff_tiles = tf.reduce_mean(tf.abs(target_tiles_cropped - prediction_tiles), [1, 2, 3], keepdims=True)
+    argmin = tf.argmin(diff_tiles, axis=0)
+    argminij = tf.unravel_index(tf.squeeze(argmin), (tol, tol))
+    argminij = tf.reshape(tf.cast(argminij, dtype=tf.float32)*stride, (1,2))
+    target_translate = tf.contrib.image.translate(target,
+        -argminij,
+        interpolation='BILINEAR')
+    target_cropped = tf.slice(target_translate, [0, 0, 0, 0], [1, tar_h, tar_w, 3])
+    if losstype == 'percep':
         features = ["conv1_2", "conv2_2"]
-        diff_percep = compute_percep_loss(target_tiles_cropped, prediction_tiles, features, withl1=True)
-        # print("diff_percep shape: ", diff_percep.shape)
+        diff_percep = compute_percep_loss(target_cropped, prediction, features, withl1=True)
         diff_tiles = tf.reduce_mean(diff_percep, [1, 2, 3], keepdims=True)
     loss = tf.reduce_min(diff_tiles)
-    argmin = tf.argmin(diff_tiles, axis=0)
     # print("argmin: ", diff_tiles, argmin)
-    return loss, argmin
+    return loss, target_cropped
 
 def build_net(ntype,nin,nwb=None,name=None):
     if ntype=='conv':
@@ -41,7 +57,7 @@ def get_weight_bias(vgg_layers,i):
     bias=tf.constant(np.reshape(bias,(bias.size)))
     return weights,bias
 
-def build_vgg19(input,reuse=False):
+def build_vgg19(input,features='conv1_2',reuse=False):
     if reuse:
         tf.get_variable_scope().reuse_variables()
     net={}
@@ -68,9 +84,9 @@ def build_vgg19(input,reuse=False):
     return net
 
 def compute_percep_loss(input, output, features, withl1=False, reuse=False):
-    vgg_real=build_vgg19(output*255.0,reuse=reuse)
-    vgg_fake=build_vgg19(input*255.0,reuse=True)
     loss_sum = 0
+    vgg_real=build_vgg19(output*255.0, features, reuse=reuse)
+    vgg_fake=build_vgg19(input*255.0, features, reuse=True)
     if withl1:
         loss_sum += compute_l1_loss(vgg_real['input'],vgg_fake['input'])
     if "conv1_2" in features:
@@ -92,3 +108,19 @@ def compute_l1_loss(input, output):
 def compute_l2_loss(input, output):
     return tf.nn.l2_loss(tf.subtract(output, input))
 
+def compute_contextual_loss(input, output, reuse=False):
+    CX = edict()
+    CX.crop_quarters = False
+    CX.max_sampling_1d_size = 128
+    CX.feat_layers = {'conv1_2' : 1.0, 'conv2_2' : 1.0, 'conv3_2': 1.0, 'conv4_2': 1.0}
+    CX.Dist = Distance.DotProduct
+    CX.nn_stretch_sigma = 0.5 #0.1
+
+    features = list(CX.feat_layers.keys())
+
+    vgg_real=build_vgg19(output*255.0, features, reuse=reuse)
+    vgg_fake=build_vgg19(input*255.0, features, reuse=True)
+    CX_loss_list = [w * CX_loss_helper(vgg_real[layer], vgg_fake[layer], CX)
+        for layer, w in CX.feat_layers.items()]
+    CX_loss = tf.reduce_sum(CX_loss_list)
+    return CX_loss
