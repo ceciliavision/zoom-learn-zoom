@@ -7,6 +7,7 @@ from PIL import Image
 import numpy as np
 from timeit import default_timer as timer
 import scipy.stats as stats
+
 # import tifffile
 
 ######### Local Vars
@@ -47,20 +48,25 @@ def read_paths(path, type='RAW'):
     return paths
 
 # read in input dict of image pairs with 2X zoom
-def read_input_2x(path_raw, path_process):
+def read_input_2x(path_raw, path_process, id_shift=4, is_training=True):
     input_dict = {}
     fileid = int(os.path.basename(path_raw).split('.')[0])
-    if fileid >= 5:
-        return None
-    path2_raw = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(fileid+2))
+    if is_training:
+        if fileid >= (7-id_shift):
+            return None
+    else: # testing on _4
+        if fileid != 7-id_shift:
+            print("Please test with %d"%(7-id_shift))
+            return None
+    path2_raw = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(fileid+id_shift))
     path_raw_ref = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(1))
     try:
         focal1 = readFocal_pil(path_raw)
         focal2 = readFocal_pil(path2_raw)
         focal_ref = readFocal_pil(path_raw_ref)
         ratio = focal1/focal2
-        if ratio > 2.5:
-            path2_raw = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(fileid+2))
+        if ratio > 4.5:
+            path2_raw = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(fileid+id_shift-1))
             try:
                 focal2 = readFocal_pil(path2_raw)
             except:
@@ -76,18 +82,19 @@ def read_input_2x(path_raw, path_process):
     
     ratio_ref1 = focal_ref/focal1
     ratio_ref2 = focal_ref/focal2
-    src_path = path2_raw
     tar_path = path_process
+    src_path = path_process.replace(os.path.basename(path_process).split('.')[0].split('_')[0], "%05d"%(fileid+2))
     
-    print("Learn a zoom of %s from %s to %s"%(ratio, src_path, tar_path))
-    input_dict['src_path'] = src_path
+    print("Learn a zoom of %s from %s to %s"%(ratio, path2_raw, tar_path))
+    input_dict['src_path_raw'] = path2_raw
     input_dict['tar_path_raw'] = path2_raw
+    input_dict['src_path'] = src_path
     input_dict['tar_path'] = tar_path
     input_dict['ratio_ref1'] = ratio_ref1
     input_dict['ratio_ref2'] = ratio_ref2
     input_dict['ratio'] = ratio
     input_dict['src_tform'] = read_tform(os.path.dirname(tar_path)+'/tform.txt',
-        key=os.path.basename(src_path).split('.')[0])
+        key=os.path.basename(path2_raw).split('.')[0])
     input_dict['tar_tform'] = read_tform(os.path.dirname(tar_path)+'/tform.txt',
         key=os.path.basename(tar_path).split('.')[0])
     return input_dict
@@ -108,7 +115,7 @@ def readOrien_pil(image_path):
 def get_bayer(path):
     raw = rawpy.imread(path)
     bayer = raw.raw_image_visible.astype(np.float32)
-    bayer = np.maximum(bayer - 512,0)/ (16383 - 512) #subtract the black level
+    bayer = (bayer - 512)/ (16383 - 512) #subtract the black level
     return bayer
 
 def reshape_raw(bayer):
@@ -123,11 +130,34 @@ def reshape_raw(bayer):
                        bayer[1:H:2,0:W:2,:]), axis=2)
     return reshaped
 
+def reshape_back_raw(bayer):
+    H = bayer.shape[0]
+    W = bayer.shape[1]
+    newH = int(H*2)
+    newW = int(W*2)
+    bayer_back = np.zeros((newH, newW))
+    bayer_back[0:newH:2,0:newW:2] = bayer[...,0]
+    bayer_back[0:newH:2,1:newW:2] = bayer[...,1]
+    bayer_back[1:newH:2,1:newW:2] = bayer[...,2]
+    bayer_back[1:newH:2,0:newW:2] = bayer[...,3]
+    return bayer_back
+
+def write_raw(source_raw, target_raw_path):
+    target_raw = rawpy.imread(target_raw_path)
+    H, W = source_raw.shape[:2]
+    for indi,i in enumerate(range(H)):
+        for indj,j in enumerate(range(W)):
+            target_raw.raw_image_visible[indi, indj] = source_raw[i, j] * (16383 - 512) + 512
+    rgb = target_raw.postprocess(no_auto_bright=True,
+        use_camera_wb=False,
+        output_bps=8)
+    return rgb
+
 ### CHECK
-def prepare_input(input_dict, pw=512, ph=512, tol=32, pre_crop=False):
+def prepare_input(input_dict, up_ratio=2., mode='train', is_pack=True):
     out_dict = {}
     ratio = input_dict['ratio']
-    ratio_offset = 2./ratio ####### HHH #######
+    ratio_offset = up_ratio/ratio ####### HHH #######
     scale_inv_offset = get_scale_matrix(1./ratio_offset)
     scale_ref = get_scale_matrix(input_dict['ratio_ref1'])
     scale_inv_ref = get_scale_matrix(1./input_dict['ratio_ref1'])
@@ -143,20 +173,50 @@ def prepare_input(input_dict, pw=512, ph=512, tol=32, pre_crop=False):
     # concat_tform = np.matmul(np.append(inv_src_tform,[[0,0,1]],0), concat_tform)
     # print("concat_tform",combined_tform)
 
-    input_raw = get_bayer(input_dict['src_path'])
-    tar_raw = get_bayer(input_dict['tar_path_raw'])
-    tar_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+os.path.basename(input_dict['tar_path'].split('.')[0]+'.png'))
-    tar_rgb = np.array(tar_rgb)
+    input_raw = get_bayer(input_dict['src_path_raw'])
     input_raw_reshape = reshape_raw(input_raw)
     cropped_raw = crop_fov(input_raw_reshape, 1./input_dict['ratio_ref2'])
+    out_dict['input_raw'] = cropped_raw
+    try:
+        input_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+
+            os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.png'))
+        # print("input rgb path:", os.path.dirname(input_dict['tar_path'])+'/'+
+        #     os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.png'))
+    except Exception as exception:
+        print("Failed to open %s"%(os.path.dirname(input_dict['tar_path'])+'/'+
+            os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.png')))
+        return None
+    input_rgb = np.array(input_rgb)
+    if is_pack:
+        input_raw_reshape = reshape_raw(input_raw)
+    else:
+        input_raw_reshape = input_raw
+        
+    cropped_input_rgb = crop_fov(input_rgb, 1./input_dict['ratio_ref2'])
+    cropped_input_rgb = image_float(cropped_input_rgb)
+    out_dict['input_rgb'] = cropped_input_rgb
+    out_dict['tform'] = combined_tform[0:2,...]
+    if mode=='inference':
+        return out_dict
+
+    tar_raw = get_bayer(input_dict['tar_path_raw'])
+    if is_pack:
+        tar_raw_reshape = reshape_raw(tar_raw)
+    else:
+        tar_raw_reshape = tar_raw
+    try:
+        tar_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+
+            os.path.basename(input_dict['tar_path'].split('.')[0]+'.png'))
+    except Exception as exception:
+        print("Failed to open %s"%os.path.dirname(input_dict['tar_path'])+'/'+
+            os.path.basename(input_dict['tar_path'].split('.')[0]+'.png'))
+        return None
+    tar_rgb = np.array(tar_rgb)
     cropped_rgb = crop_fov(tar_rgb, 1./input_dict['ratio_ref1'])
     tar_raw_reshape = reshape_raw(tar_raw)
-
     cropped_rgb = image_float(cropped_rgb)
     out_dict['ratio_offset'] = ratio_offset
-    out_dict['input_raw'] = cropped_raw
     out_dict['tar_rgb'] = cropped_rgb
-    out_dict['tform'] = combined_tform[0:2,...]
     return out_dict
 
 ### CHECK
@@ -174,13 +234,16 @@ def concat_tform(tform_list):
     return tform_c
 
 # PIL image format
-def crop_pair(raw, image, croph, cropw, tol=32, ratio=2, type='central'):
+def crop_pair(raw, image, croph, cropw, tol=32, ratio=2, type='central', fixx=0.5, fixy=0.5):
+    raw_tol = 4
     is_pad_h = False
     is_pad_w = False
     if type == 'central':
         rand_p = rand_gen.rvs(2)
     elif type == 'uniform':
         rand_p = np.random.rand(2)
+    elif type == 'fixed':
+        rand_p = [fixx,fixy]
     
     height_raw, width_raw = raw.shape[:2]
     height_rgb, width_rgb = image.shape[:2]
@@ -189,8 +252,8 @@ def crop_pair(raw, image, croph, cropw, tol=32, ratio=2, type='central'):
         return None, None
     croph_rgb = croph + tol * 2
     cropw_rgb = cropw + tol * 2
-    croph_raw = int(croph/(ratio*2))
-    cropw_raw = int(cropw/(ratio*2))
+    croph_raw = int(croph/(ratio*2)) + raw_tol*2  # add a small offset to deal with boudary case
+    cropw_raw = int(cropw/(ratio*2)) + raw_tol*2  # add a small offset to deal with boudary case
     if croph_rgb > height_rgb:
         sx_rgb = 0
         sx_raw = int(tol/2.)
@@ -201,7 +264,7 @@ def crop_pair(raw, image, croph, cropw, tol=32, ratio=2, type='central'):
         pad_h2_raw = int(np.ceil(pad_h2_rgb/(2*ratio)))
     else:
         sx_rgb = int((height_rgb - croph_rgb) * rand_p[0])
-        sx_raw = int((sx_rgb + tol)/(2*ratio))
+        sx_raw = max(0, int((sx_rgb + tol)/(2*ratio)) - raw_tol) # add a small offset to deal with boudary case
     
     if cropw_rgb > width_rgb:
         sy_rgb = 0 
@@ -213,7 +276,72 @@ def crop_pair(raw, image, croph, cropw, tol=32, ratio=2, type='central'):
         pad_w2_raw = int(np.ceil(pad_w2_rgb/(2*ratio)))
     else:
         sy_rgb = int((width_rgb - cropw_rgb) * rand_p[1])
-        sy_raw = int((sy_rgb + tol)/(2*ratio))
+        sy_raw = max(0, int((sy_rgb + tol)/(2*ratio)) - raw_tol)
+    
+    # print("raw cropping params: ", raw.shape, sx_raw, croph_raw, sy_raw, cropw_raw)
+    # print("rgb cropping params: ", image.shape, sx_rgb, croph_rgb, sy_rgb, cropw_rgb)
+    raw_cropped = raw
+    rgb_cropped = image
+    if is_pad_h:
+        print("Pad h with:", (pad_h1_rgb, pad_h2_rgb),(pad_h1_raw, pad_h2_raw))
+        rgb_cropped = np.pad(image, pad_width=((pad_h1_rgb, pad_h2_rgb),(0, 0),(0,0)),
+            mode='constant', constant_values=0)
+        raw_cropped = np.pad(raw, pad_width=((pad_h1_raw, pad_h2_raw),(0, 0),(0,0)),
+            mode='constant', constant_values=0)
+    if is_pad_w:
+        print("Pad w with:", (pad_w1_rgb, pad_w2_rgb),(pad_w1_raw, pad_w2_raw))
+        rgb_cropped = np.pad(image, pad_width=((0, 0),(pad_w1_rgb, pad_w2_rgb),(0,0)),
+            mode='constant', constant_values=0)
+        raw_cropped = np.pad(raw, pad_width=((0, 0),(pad_w1_raw, pad_w2_raw),(0,0)),
+            mode='constant', constant_values=0)
+    raw_cropped = raw_cropped[sx_raw:sx_raw+croph_raw, sy_raw:sy_raw+cropw_raw,...]
+    rgb_cropped = rgb_cropped[sx_rgb:sx_rgb+croph_rgb, sy_rgb:sy_rgb+cropw_rgb,...]
+
+    return raw_cropped, rgb_cropped
+
+def crop_pair_reverse(raw, image, croph, cropw, tol=32, ratio=2, type='central', fixx=0.5, fixy=0.5):
+    is_pad_h = False
+    is_pad_w = False
+    if type == 'central':
+        rand_p = rand_gen.rvs(2)
+    elif type == 'uniform':
+        rand_p = np.random.rand(2)
+    elif type == 'fixed':
+        rand_p = [fixx,fixy]
+    
+    height_raw, width_raw = raw.shape[:2]
+    height_rgb, width_rgb = image.shape[:2]
+    if croph > height_raw * 2*ratio or cropw > width_raw * 2*ratio:
+        print("Image too small to have the specified crop sizes.")
+        return None, None
+    croph_rgb = croph - tol * 2
+    cropw_rgb = cropw - tol * 2
+    croph_raw = int(croph/(ratio*2))
+    cropw_raw = int(cropw/(ratio*2))
+    if croph_raw > height_raw:
+        sx_rgb = int(tol)
+        sx_raw = 0
+        is_pad_h = True
+        pad_h1_raw = int((croph_raw-height_raw)/2)
+        pad_h2_raw = int(croph_raw-height_raw-pad_h1_raw)
+        pad_h1_rgb = int(pad_h1_raw*2*ratio)
+        pad_h2_rgb = int(pad_h2_raw*2*ratio)
+    else:
+        sx_raw = int((height_raw - croph_raw) * rand_p[0])
+        sx_rgb = int(sx_raw*2*ratio + tol)
+    
+    if cropw_raw > width_raw:
+        sy_raw = 0 
+        sy_rgb = int(tol)
+        is_pad_w = True
+        pad_w1_raw = int((cropw_raw-width_raw)/2)
+        pad_w2_raw = int(cropw_raw-width_raw-pad_w1_raw)
+        pad_w1_rgb = int(pad_w1_raw*2*ratio)
+        pad_w2_rgb = int(pad_w2_raw*2*ratio)
+        
+    else:
+        sy_raw = int((width_raw - cropw_raw) * rand_p[1])
+        sy_rgb = int((sy_raw*2*ratio) + tol)
     
     sy = int((width_raw - cropw) * rand_p[1])
     # print("raw cropping params: ", raw.shape, sx_raw, croph_raw, sy_raw, cropw_raw)
@@ -275,6 +403,13 @@ def image_uint8(image):
     image = (image * 255).astype(np.uint8)
     return image
 
+
+def clipped(image):
+    if image.max() <= 10:
+        return np.minimum(np.maximum(image,0.0),1.0)
+    else:
+        return np.minimum(np.maximum(image,0.0),255.0)
+
 ### CHECK
 def read_tform(txtfile, key, model='ECC'):
     if model in ['ECC', 'RIGID']:
@@ -324,6 +459,10 @@ def apply_transform(image_set, tform_set, tform_inv_set, t_type, scale=1.):
         image_t_set[i] = image_i_transform
 
     return image_t_set, tform_set_2, tform_inv_set_2
+
+def apply_transform_single(image, tform, c, r):
+    return cv2.warpAffine(image, tform, (c, r),
+        flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
 
 ### CHECK 
 # images don't need to have same size
@@ -473,18 +612,36 @@ def post_process_rgb(target_rgb, out_size, tform):
         transformed_corner['minh']:transformed_corner['maxh'],:]
     return target_rgb_process, transformed_corner
 
-
+### CHECK
 def unaligned_loss(prediction, target, tar_w, tar_h, tol, stride=1):
     min_error = 1000000
-    canvas = np.zeros((tar_w, tar_h, prediction.shape[-1]))
     shifted_loss = np.zeros((int(tol*2/stride), int(tol*2/stride)))
     for idi,i in enumerate(range(0,(tol*2),stride)):
         for idj,j in enumerate(range(0,(tol*2),stride)):
+            canvas = np.zeros((tar_w, tar_h, prediction.shape[-1]))
             canvas[i:i+prediction.shape[0],j:j+prediction.shape[1],:] = prediction
             shifted_loss[idi,idj] = (abs((target-canvas)[i:i+prediction.shape[0],j:j+prediction.shape[1],:])).mean()
-            # print(i,j,shifted_loss[idi,idj])
+            print(i,j,shifted_loss[idi,idj])
             if shifted_loss[idi,idj] < min_error:
                 image_min = canvas
+                min_error = shifted_loss[idi,idj]
     loss = shifted_loss.min()
     mini, minj = np.unravel_index(shifted_loss.argmin(), shifted_loss.shape)
-    return canvas, loss, mini*stride, minj*stride
+    return image_min, loss, mini*stride, minj*stride
+
+### CHECK
+def apply_gamma(image, gamma=2.22,is_apply=True):
+    if not is_apply:
+        return image
+    if image.max() > 5:
+        image = image_float(image)
+    if image.min() < 0:
+        print("Negative values in images, zero out")
+        image[image < 0] = 0.
+    image_copy = image
+    # image_copy[image < 0.0031308] *= 4.5
+    image_copy = image_copy ** (1./gamma)
+    return image_copy
+
+
+    
