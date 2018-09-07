@@ -213,8 +213,10 @@ def prepare_input(input_dict, up_ratio=2., mode='train', is_pack=True):
         return None
     tar_rgb = np.array(tar_rgb)
     cropped_rgb = crop_fov(tar_rgb, 1./input_dict['ratio_ref1'])
+    cropped_input_rgb = crop_fov(input_rgb, 1./input_dict['ratio_ref2'])
     tar_raw_reshape = reshape_raw(tar_raw)
     cropped_rgb = image_float(cropped_rgb)
+    cropped_input_rgb = image_float(cropped_input_rgb)
     out_dict['ratio_offset'] = ratio_offset
     out_dict['tar_rgb'] = cropped_rgb
     return out_dict
@@ -643,5 +645,3 @@ def apply_gamma(image, gamma=2.22,is_apply=True):
     image_copy = image_copy ** (1./gamma)
     return image_copy
 
-
-    

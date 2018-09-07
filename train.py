@@ -26,6 +26,7 @@ file_type = 'RAW'
 net_type = 'resnet' # unet resnet
 opt_type = 'adam' # momentum # adam
 num_channels = 64
+
 num_in_ch = 4
 num_out_ch = 1
 batch_size = 1
@@ -123,8 +124,7 @@ with tf.variable_scope(tf.get_variable_scope()):
     else:
         input_raw=tf.placeholder(tf.float32,shape=[batch_size,None,None,num_in_ch], name="input_raw")
     # tar_shape = [1,256,256,3]
-    # tar_w=tf.placeholder(tf.int32, shape=(), name="width")
-    # crop_box=tf.placeholder(tf.int32,shape=[batch_size,4])
+    # tar_w=tf.placeholder(tf.int32, shape=(), name="width")    
     
     if net_type == 'resnet':
         out_rgb = net.SRResnet(input_raw, num_out_ch, up_ratio=up_ratio, reuse=False, up_type=upsample_type, is_training=True)
@@ -144,8 +144,8 @@ with tf.variable_scope(tf.get_variable_scope()):
         out_rgb = out_rgb[:,int(raw_tol/2)*(up_ratio*4):-int(raw_tol/2)*(up_ratio*4),
             int(raw_tol/2)*(up_ratio*4):-int(raw_tol/2)*(up_ratio*4),:]  # add a small offset to deal with boudary case
 
+    print("out_rgb shape:", out_rgb.shape)
     objDict = {}
-    lossDict = {}
     objDict['out_rgb'] = out_rgb
     # if NOT inference ---> means either test or train
     if 'inference' not in mode:
@@ -208,6 +208,10 @@ if mode == "train":
     incr_global_step = tf.assign(global_step, global_step + 1)
     merged = tf.summary.merge_all()
     saver=tf.train.Saver(max_to_keep=10)
+
+if mode == "train":
+    opt=tf.train.AdamOptimizer(learning_rate=0.0001).minimize(loss_sum,
+        var_list=[var for var in tf.trainable_variables()])
 
 ###################################### Session
 sess=tf.Session()
@@ -405,7 +409,6 @@ if mode == "train":
                     gt_match.save("%s%s/%04d/tar_rgb_match_%s.png"%(save_root,task,epoch,substr))
             except Exception as exception:
                 print("Failed to write image footprint. ;(")
-
         # producer.join()
 
 elif mode == 'test':

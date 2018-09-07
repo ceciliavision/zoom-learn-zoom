@@ -31,6 +31,21 @@ def upsample(batch_input, in_channels, out_channels, sp=512, type='deconv'):
     
     return upsampled
 
+def upsample(batch_input, in_channels, out_channels, sp=512, type='deconv'):
+	if type == 'deconv':
+		upsampled = deconv(batch_input, in_channels, out_channels)
+	elif type == 'bilinear':
+		upsampled = tf.image.resize_bilinear(batch_input, [sp,sp], align_corners=True)
+		upsampled = conv2(upsampled, in_channels, out_channels, stride=1, fsz=3)
+	elif type == 'subpixel':
+		upsampled = conv(upsampled, in_channels, out_channels*4, stride=1)
+		upsampled = tf.depth_to_space(upsampled, 2)
+	else:
+		print("Not recognized upsample type.")
+		exit()
+	
+	return upsampled
+
 def conv(batch_input, in_channels, out_channels, stride):
     with tf.variable_scope("conv"):
         # in_channels = batch_input.get_shape()[3]
