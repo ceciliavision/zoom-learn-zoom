@@ -13,11 +13,11 @@ from multiprocessing import Process, Pool, Queue
 is_debug = True
 continue_training = True
 
-mode = 'test'
-substr = 'deconv_lum_x4_cont_coord_10'
-task = 'restore_srresnet_deconv_lum_x4_cont_coord_10'  # restore_srresnet_l1 , restore_resnet
+mode = 'inference_single'
+substr = 'rgb_x4_cont_coord_5_patch2_w5_camera_wb_cont_cpu' # 12 bits
+task = 'rgb_x4_cont_coord_5_patch2_w5_camera_wb_cont'  # restore_srresnet_l1 , restore_resnet
 save_root = '/export/vcl-nfs2/shared/xuanerzh/zoom/'
-restore_path = save_root + 'restore_srresnet_deconv_lum_x4_cont_coord_10'
+restore_path = save_root + 'rgb_x4_cont_coord_5_patch2_w5_camera_wb_cont'
 upsample_type = 'deconv' # deconv, subpixel
 loss_type = 'contextual'  #align # contextual # combine
 align_loss_type = 'percep'
@@ -28,51 +28,61 @@ opt_type = 'adam' # momentum # adam
 num_channels = 64
 
 num_in_ch = 4
-num_out_ch = 1
+num_out_ch = 3
 batch_size = 1
 tol = 16
 up_ratio = 4
 stride = 2
 # "/export/vcl-nfs2/shared/xuanerzh/zoom/test/dslr_10x_both/00062/00006.ARW"
 train_root = ['/export/vcl-nfs2/shared/xuanerzh/zoom/dslr_10x_both/dslr_10x_both/'] # path to raw files
+val_root = ['/export/vcl-nfs2/shared/xuanerzh/zoom/val/dslr_10x_both/']
 test_root = ['/export/vcl-nfs2/shared/xuanerzh/zoom/test/dslr_10x_both/']
 subfolder = 'dslr_10x_both'
-maxepoch = 100
+maxepoch = 50
 decay_step = 20000
-decay_rate = 0.1
-save_freq = 5000   # unit: step
-save_img_freq = 400   #unit: step
+decay_rate = 0.05
+save_freq = 500   # unit: step
+save_img_freq = 50   #unit: step
 save_summary_freq = 100  #unit: step
 
 if loss_type == 'contextual':
-    tol = 0
+    tol = 16
     w_align = 0
-    w_smooth = 50
+    w_smooth = 0.
     w_cont = 1
-    w_spatial = 0.7
+    w_patch = 5
+    w_spatial = 0.5
 elif loss_type == 'combine':
     tol = 16
     w_align = 100.
     w_cont = 1
+    w_patch = 1.5
     w_smooth = 10
     w_spatial = 0.0
 elif loss_type == 'align':
     tol = 16
     w_align = 1
     w_cont = 1
+    w_patch = 0.
     w_smooth = 0
     w_spatial = 0.0
 
 raw_tol = 4
-img_sz = 256
-raw_sz = 32 + raw_tol*2
+if mode == 'train':
+    img_sz = 1024
+else:
+    img_sz = 512
+raw_sz = img_sz/up_ratio/2 + raw_tol*2
 
 if not os.path.isdir("%s"%(task)):
     os.makedirs("%s"%(task))
     if mode == 'train':
         copyfile('./train.py', './%s/train_%s.py'%(task, time.strftime('%b-%d-%Y_%H%M', time.localtime())))
+        copyfile('./utils.py', './%s/utils_%s.py'%(task, time.strftime('%b-%d-%Y_%H%M', time.localtime())))
         copyfile('./model/net.py', './%s/net_%s.py'%(task, time.strftime('%b-%d-%Y_%H%M', time.localtime())))
         copyfile('./loss.py', './%s/loss_%s.py'%(task, time.strftime('%b-%d-%Y_%H%M', time.localtime())))
+    with open('./%s/loss.txt'%(task), 'w') as floss:
+        floss.write('%s\n'%task)
 if not os.path.isdir("/home/xuanerzh/tmp_%s"%(substr)):
     os.makedirs("/home/xuanerzh/tmp_%s"%(substr))
 
@@ -144,8 +154,8 @@ with tf.variable_scope(tf.get_variable_scope()):
         out_rgb = out_rgb[:,int(raw_tol/2)*(up_ratio*4):-int(raw_tol/2)*(up_ratio*4),
             int(raw_tol/2)*(up_ratio*4):-int(raw_tol/2)*(up_ratio*4),:]  # add a small offset to deal with boudary case
 
-    print("out_rgb shape:", out_rgb.shape)
     objDict = {}
+    lossDict = {}
     objDict['out_rgb'] = out_rgb
     # if NOT inference ---> means either test or train
     if 'inference' not in mode:
@@ -158,10 +168,9 @@ with tf.variable_scope(tf.get_variable_scope()):
         loss_context = tf.constant(0.)
         loss_unalign = tf.constant(0.)
         loss_smooth = tf.constant(0.)
-        target_translated = tar_lum
         # objDict['target_translated'] = target_translated
         if loss_type == 'align' or loss_type == 'combine':
-            loss_unalign, target_translated=losses.compute_unalign_loss(out_rgb, tar_lum,
+            loss_unalign, target_translated=losses.compute_unalign_loss(out_rgb, target_rgb,
                 tol=tol, losstype=align_loss_type, stride=stride)
             loss_unalign *= w_align
             if align_loss_type == 'percep':
@@ -172,11 +181,14 @@ with tf.variable_scope(tf.get_variable_scope()):
     # if training
     if mode == 'train':
         if loss_type == 'contextual' or loss_type == 'combine':
-            loss_unalign, target_translated=losses.compute_unalign_loss(out_rgb, tar_lum,
+            _, target_translated=losses.compute_unalign_loss(out_rgb, target_rgb,
                 tol=tol, losstype=align_loss_type, stride=stride)
-            # target_translated = tf.reshape(target_translated, tar_shape)
+            target_translated = tf.reshape(target_translated, [batch_size,img_sz,img_sz, num_out_ch])
             loss_context,loss_argmax = losses.compute_contextual_loss(out_rgb, target_translated, w_spatial=w_spatial)
+            loss_context_patch,_ = losses.compute_patch_contextual_loss(out_rgb, target_translated, 
+                patch_sz=5, rates=1, w_spatial=w_spatial)
             tf.summary.scalar('loss_context', loss_context)
+            tf.summary.scalar('loss_context_patch', loss_context_patch)
         
         # loss_smooth = losses.compute_charbonnier_loss(out_rgb)
         # loss_smooth *= w_smooth
@@ -185,16 +197,16 @@ with tf.variable_scope(tf.get_variable_scope()):
         lossDict['smooth'] = loss_smooth
         lossDict['loss_context'] = loss_context
         lossDict['l1_unalign'] = loss_unalign
-        lossDict['total'] = loss_context* w_cont + loss_unalign*w_align + loss_smooth*w_smooth
-    else:
+        lossDict['total'] = loss_context * w_cont + loss_context_patch * w_patch + loss_unalign * w_align #+ loss_smooth * w_smooth
+    elif mode == 'test':
         # do a match anyway
-        loss_unalign, target_translated=losses.compute_unalign_loss(out_rgb, tar_lum,
+        _, target_translated=losses.compute_unalign_loss(out_rgb, target_rgb,
             tol=tol, losstype=align_loss_type, stride=stride)
-    objDict['target_translated'] = target_translated
+        objDict['target_translated'] = target_translated
 
 if mode == "train":
     global_step = tf.train.get_or_create_global_step()
-    learning_rate = tf.train.exponential_decay(0.0002, global_step, decay_step, decay_rate)
+    learning_rate = tf.train.exponential_decay(0.0001, global_step, decay_step, decay_rate)
     if opt_type == 'momentum':
         opt = tf.train.MomentumOptimizer(learning_rate=0.00005, momentum=0.99).minimize(lossDict['total'],
             global_step=global_step,
@@ -209,17 +221,13 @@ if mode == "train":
     merged = tf.summary.merge_all()
     saver=tf.train.Saver(max_to_keep=10)
 
-if mode == "train":
-    opt=tf.train.AdamOptimizer(learning_rate=0.0001).minimize(loss_sum,
-        var_list=[var for var in tf.trainable_variables()])
-
 ###################################### Session
 sess=tf.Session()
 merged = tf.summary.merge_all()
 writer = tf.summary.FileWriter('%s/log'%(task), sess.graph)
 if mode == 'train':
-    saver_restore=tf.train.Saver([var for var in tf.trainable_variables()])
-    #saver_restore=tf.train.Saver([var for var in tf.trainable_variables() if 'deconv_output_stage' not in var.name])
+    # saver_restore=tf.train.Saver([var for var in tf.trainable_variables()])
+    saver_restore=tf.train.Saver([var for var in tf.trainable_variables()])# if ('deconv_output_stage' not in var.name and "deconv_stage4" not in var.name)])
 else:
     saver_restore=tf.train.Saver([var for var in tf.trainable_variables()])
 
@@ -252,14 +260,25 @@ if mode == "train":
             rgb_path = os.path.dirname(raw_path).replace(subfolder, subfolder+'_process') + "/rawpng/" + \
                 os.path.basename(raw_path).replace(".ARW","_gamma.png")
         else:
-            rgb_path = os.path.dirname(raw_path).replace(subfolder, subfolder+'_process') + "/rawpng/" + \
-                os.path.basename(raw_path).replace(".ARW",".png")
-        id_shift=up_ratio-1 if up_ratio==4 else up_ratio
+            rgb_path = raw_path.replace(".ARW",".JPG")
+            # rgb_path = os.path.dirname(raw_path) + "/aligned/" + \
+            #     os.path.basename(raw_path).replace(".ARW",".JPG")
+            # rgb_path = os.path.dirname(raw_path).replace(subfolder, subfolder+'_process') + "/rawpng/" + \
+            #     os.path.basename(raw_path).replace(".ARW",".png")
+        if up_ratio == 4:
+            id_shift = 3
+        elif up_ratio == 8:
+            id_shift = 5
+        elif id_shift == 2:
+            id_shift = 2
         input_dict = utils.read_input_2x(raw_path, rgb_path, id_shift=id_shift)
         if input_dict is None:
             print("input_dict is None ... for %s"%(raw_path))
             return None
         processed_dict = utils.prepare_input(input_dict, up_ratio=up_ratio, is_pack=True)
+        if processed_dict is None:
+            print('Invalid processed_dict %s'%(raw_path))
+            return None
         input_raw_img_orig,target_rgb_img_orig = processed_dict['input_raw'], processed_dict['tar_rgb']
         # print("Read in image shapes:",train_input_paths[id], input_raw_img_orig.shape, target_rgb_img_orig.shape)
         if input_raw_img_orig is None or target_rgb_img_orig is None:
@@ -272,9 +291,24 @@ if mode == "train":
             (int(col*2*up_ratio),int(row*2*up_ratio)), processed_dict['tform'])
         input_raw_img_orig = input_raw_img_orig[int(transformed_corner['minw']/(2*up_ratio)):int(transformed_corner['maxw']/(2*up_ratio)),
             int(transformed_corner['minh']/(2*up_ratio)):int(transformed_corner['maxh']/(2*up_ratio)),:]
-        cropped_raw, cropped_rgb = utils.crop_pair(input_raw_img_orig, target_rgb_img_orig, 
-            croph=tar_h_val, cropw=tar_w_val, tol=tol, ratio=up_ratio, type='central')
+        # pre-align to camera output
+        # target_rgb_img_orig, transformed_corner = utils.post_process_rgb(target_rgb_img_orig,
+        #     (int(col*2*up_ratio),int(row*2*up_ratio)), processed_dict['camera_tform'])
+        # input_raw_img_orig = input_raw_img_orig[int(transformed_corner['minw']/(2*up_ratio)):int(transformed_corner['maxw']/(2*up_ratio)),
+        #     int(transformed_corner['minh']/(2*up_ratio)):int(transformed_corner['maxh']/(2*up_ratio)),:]
         
+        cropped_raw, cropped_rgb = utils.crop_pair(input_raw_img_orig, target_rgb_img_orig, 
+            croph=tar_h_val, cropw=tar_w_val, tol=tol, raw_tol=raw_tol, ratio=up_ratio, type='central')
+        if cropped_raw is None or cropped_rgb is None:
+            print('Invalid cropping for %s'%(raw_path))
+            return None
+
+        # remove white balance
+        out_wb = input_dict['tar_wb']
+        cropped_rgb[...,0] /= np.power(out_wb[0,0],1/2.2)
+        cropped_rgb[...,1] /= np.power(out_wb[0,1],1/2.2)
+        cropped_rgb[...,2] /= np.power(out_wb[0,3],1/2.2)
+
         cropped = {}
         cropped['cropped_raw'] = cropped_raw
         cropped['cropped_rgb'] = cropped_rgb
@@ -332,13 +366,17 @@ if mode == "train":
         if cropped_raw is None or cropped_rgb is None:
             continue
 
-        if cropped_raw.shape[0] * 2 * up_ratio + tol * 2 != cropped_rgb.shape[0]:
+        print("Processed image shapes: ", cropped_raw.shape, cropped_rgb.shape, cropped_raw.min(), cropped_raw.max())
+        if (cropped_raw.shape[0] - raw_tol*2) * 2 * up_ratio + tol * 2 != cropped_rgb.shape[0]:
+            print("xxxxx Wrong cropped shapes.")
+            continue
+        if (cropped_raw.shape[1] - raw_tol*2) * 2 * up_ratio + tol * 2 != cropped_rgb.shape[1]:
             print("xxxxx Wrong cropped shapes.")
             continue
         
         target_rgb_img = np.expand_dims(cropped_rgb, 0)
         input_raw_img = np.expand_dims(cropped_raw, 0)
-        print("Processed image shapes: ", input_raw_img.shape, target_rgb_img.shape)
+        # print("RGB image range: ",target_rgb_img.min(), target_rgb_img.max())
         
         fetch_list=[opt,learning_rate,global_step,merged,objDict,lossDict,loss_argmax]
         st=time.time()
@@ -365,27 +403,31 @@ if mode == "train":
         if cnt % save_summary_freq == 0:
             writer.add_summary(out_summary, cnt)
         if is_debug and (cnt-1) % save_img_freq == 0:
+            with open('./%s/loss.txt'%(task), 'a') as floss:
+                floss.write('loss for Iter %d is %.4f\n'%(cnt, out_lossDict["total"]))
             cropped_raw_reshaped = utils.reshape_back_raw(cropped_raw)
             cropped_raw_rgb = utils.write_raw(cropped_raw_reshaped, input_dict['src_path_raw'])
-            cropped_raw_rgb = cropped_raw_rgb[:cropped_raw_reshaped.shape[0],:cropped_raw_reshaped.shape[1]]
-            input_rgb_cropped = Image.fromarray(np.uint8(
-                utils.clipped(utils.apply_gamma(cropped_raw_rgb))*255))
+            # cropped_raw_rgb = cropped_raw_rgb[:cropped_raw_reshaped.shape[0],:cropped_raw_reshaped.shape[1]]
+            cropped_raw_rgb = cropped_raw_rgb[raw_tol*2:cropped_raw_reshaped.shape[0]-raw_tol*2,
+                raw_tol*2:cropped_raw_reshaped.shape[1]-raw_tol*2]
+
+            input_rgb_cropped = Image.fromarray(cropped_raw_rgb)
             input_rgb_cropped = input_rgb_cropped.resize((int(input_rgb_cropped.width * up_ratio),
                 int(input_rgb_cropped.height * up_ratio)), Image.ANTIALIAS)
             input_rgb_cropped.save("/home/xuanerzh/tmp_%s/input_rgb_cropped_%d_%d.png"%(substr, epoch, cnt))
 
             output_rgb = utils.apply_gamma(
-                utils.clipped(np.squeeze(out_objDict["out_rgb"][0,...])),is_apply=is_gt_gamma==False)*255
+                utils.clipped(np.squeeze(out_objDict["out_rgb"][0,...])),is_apply=False)*255
             src_raw = Image.fromarray(np.uint8(utils.clipped(utils.apply_gamma(input_raw_img[0,...,0]))*255))
             tartget_rgb = Image.fromarray(np.uint8(utils.clipped(
-                utils.apply_gamma(target_rgb_img[0,...], is_apply=is_gt_gamma==False))*255))
+                utils.apply_gamma(target_rgb_img[0,...], is_apply=False))*255))
             Image.fromarray(np.uint8(output_rgb)).save("/home/xuanerzh/tmp_%s/out_rgb_%d_%d.png"%(substr, epoch, cnt))
             src_raw.save("/home/xuanerzh/tmp_%s/src_raw_%d_%d.png"%(substr, epoch, cnt))
             tartget_rgb.save("/home/xuanerzh/tmp_%s/tar_rgb_%d_%d.png"%(substr, epoch, cnt))
-            if loss_type == 'align' or loss_type == 'combine':
-                gt_match = Image.fromarray(np.uint8(utils.clipped(utils.apply_gamma(np.squeeze(
-                    out_objDict['target_translated']),is_apply=is_gt_gamma==False))*255))
-                gt_match.save("/home/xuanerzh/tmp_%s/tar_rgb_match_%d_%d.png"%(substr, epoch, cnt))
+            # if loss_type == 'align' or loss_type == 'combine':
+            #     gt_match = Image.fromarray(np.uint8(utils.clipped(utils.apply_gamma(np.squeeze(
+            #         out_objDict['target_translated']),is_apply=is_gt_gamma==False))*255))
+            #     gt_match.save("/home/xuanerzh/tmp_%s/tar_rgb_match_%d_%d.png"%(substr, epoch, cnt))
 
             target_buffer = target_rgb_img
             # input_raw_img[id]=1.
@@ -409,6 +451,7 @@ if mode == "train":
                     gt_match.save("%s%s/%04d/tar_rgb_match_%s.png"%(save_root,task,epoch,substr))
             except Exception as exception:
                 print("Failed to write image footprint. ;(")
+        floss.close()
         # producer.join()
 
 elif mode == 'test':
@@ -440,15 +483,25 @@ elif mode == 'test':
         ct = id
         print("Testing on %d th image : %s"%(id, test_input_paths[id]))
         
+        if up_ratio == 4:
+            id_shift = 3
+        elif up_ratio == 8:
+            id_shift = 5
+        elif id_shift == 2:
+            id_shift = 2
+
         if is_gt_gamma == True:
             rgb_path = os.path.dirname(test_input_paths[id]).replace(subfolder, subfolder+'_process') + "/rawpng/" + \
                 os.path.basename(test_input_paths[id]).replace(".ARW","_gamma.png")
         else:
-            rgb_path = os.path.dirname(test_input_paths[id]).replace(subfolder, subfolder+'_process') + "/rawpng/" + \
-                os.path.basename(test_input_paths[id]).replace(".ARW",".png")
+            rgb_path = test_input_paths[id].replace(".ARW",".JPG")
+            fileid = int(os.path.basename(rgb_path).split('.')[0])
+            rgb_path_low = rgb_path.replace(os.path.basename(rgb_path).split('.')[0], "%05d"%(fileid+id_shift))
+            # rgb_path = os.path.dirname(test_input_paths[id]).replace(subfolder, subfolder+'_process') + "/rawpng/" + \
+            #     os.path.basename(test_input_paths[id]).replace(".ARW",".png")
         
         print(rgb_path)
-        input_dict = utils.read_input_2x(test_input_paths[id], rgb_path, id_shift=up_ratio, is_training=mode=='train')
+        input_dict = utils.read_input_2x(test_input_paths[id], rgb_path, id_shift=id_shift, is_training=mode=='train')
         if input_dict is None:
             print("input_dict is None ...")
             continue
@@ -461,23 +514,40 @@ elif mode == 'test':
             print('Invalid input raw or rgb for %s'%(test_input_paths[id]))
             continue
 
+        fileid = int(os.path.basename(input_dict['src_path_raw']).split('.')[0])
+        folderid = int(os.path.basename(os.path.dirname(input_dict['src_path_raw'])))
+
         # prepare input to pre-align
         row, col = input_raw_img_orig.shape[0:2]
         target_rgb_img_orig, transformed_corner = utils.post_process_rgb(target_rgb_img_orig,
             (int(col*2*up_ratio),int(row*2*up_ratio)), processed_dict['tform'])
         input_raw_img_orig = input_raw_img_orig[int(transformed_corner['minw']/(2*up_ratio)):int(transformed_corner['maxw']/(2*up_ratio)),
             int(transformed_corner['minh']/(2*up_ratio)):int(transformed_corner['maxh']/(2*up_ratio)),:]
-        
         input_rgb_img_orig = input_rgb_img_orig[int(transformed_corner['minw']/(up_ratio)):int(transformed_corner['maxw']/(up_ratio)),
             int(transformed_corner['minh']/(up_ratio)):int(transformed_corner['maxh']/(up_ratio))]
 
-        # tar_h_val = np.random.randint(32, 64)*(2*up_ratio)
-        # tar_w_val = np.random.randint(32, 64)*(2*up_ratio)
+        row, col = target_rgb_img_orig.shape[0:2]
+        target_rgb_img_orig, transformed_corner_camera = utils.post_process_rgb(target_rgb_img_orig,
+            (int(row),int(col)), processed_dict['camera_tform'])
+        input_raw_img_orig = input_raw_img_orig[int(transformed_corner_camera['minw']/(2*up_ratio)):int(transformed_corner_camera['maxw']/(2*up_ratio)),
+            int(transformed_corner_camera['minh']/(2*up_ratio)):int(transformed_corner_camera['maxh']/(2*up_ratio)),:]
+        input_rgb_img_orig = input_rgb_img_orig[int(transformed_corner_camera['minw']/(up_ratio)):int(transformed_corner_camera['maxw']/(up_ratio)),
+            int(transformed_corner_camera['minh']/(up_ratio)):int(transformed_corner_camera['maxh']/(up_ratio))]
+
         tar_h_val = img_sz
         tar_w_val = img_sz
         cropped_raw, cropped_rgb = utils.crop_pair(input_raw_img_orig, target_rgb_img_orig, 
-            croph=tar_h_val, cropw=tar_w_val, tol=tol, ratio=up_ratio, type='fixed', fixx=0.5, fixy=0.5)
+            croph=tar_h_val, cropw=tar_w_val, tol=tol, raw_tol=raw_tol, ratio=up_ratio, type='fixed', fixx=0.5, fixy=0.5)
         
+        # read and process camera low res image
+        input_rgb_camera_orig = Image.open(rgb_path_low)
+        input_rgb_camera_orig = utils.image_float(utils.crop_fov(np.array(input_rgb_camera_orig), 1./input_dict['ratio_ref2']))
+
+        input_rgb_camera_orig, _ = utils.post_process_rgb(input_rgb_camera_orig,
+            (int(col*2*up_ratio),int(row*2*up_ratio)), processed_dict['tform_src'])
+        cropped_rgb_camera_orig, _ = utils.crop_pair(input_rgb_camera_orig, target_rgb_img_orig, 
+            croph=tar_h_val, cropw=tar_w_val, tol=tol, raw_tol=raw_tol, ratio=1/2, type='fixed', fixx=0.5, fixy=0.5)
+
         if cropped_raw is None or cropped_rgb is None:
             print("cropped_raw or cropped_rgb is None ... ")
             continue
@@ -485,46 +555,52 @@ elif mode == 'test':
         cropped_raw_reshaped = utils.reshape_back_raw(cropped_raw)
         cropped_raw_rgb = utils.write_raw(cropped_raw_reshaped, input_dict['src_path_raw'])
         print(cropped_raw_reshaped.shape, cropped_rgb.shape, cropped_raw_rgb.shape)
-
         cropped_raw_rgb = cropped_raw_rgb[raw_tol*2:cropped_raw_reshaped.shape[0]-raw_tol*2,
             raw_tol*2:cropped_raw_reshaped.shape[1]-raw_tol*2]
-
-        # print("cropped_raw_rgb range:", cropped_rgb.min(), cropped_rgb.max())
 
         target_rgb_img = np.expand_dims(cropped_rgb, 0)
         input_raw_img = np.expand_dims(cropped_raw, 0)
         
+        # run test
         print("Input shapes: ", input_raw_img.shape, target_rgb_img.shape)
-
-        # fetch_list=[objDict]
         out_objDict=sess.run(objDict,feed_dict=
             {input_raw:input_raw_img,
             target_rgb:target_rgb_img})
-
         print("out rgb: ", out_objDict["out_rgb"][0,...].shape)
+        out_wb = input_dict['tar_wb']
+        out_objDict["out_rgb"][0,...,0] *= np.power(out_wb[0,0],1/2.2)
+        out_objDict["out_rgb"][0,...,1] *= np.power(out_wb[0,1],1/2.2)
+        out_objDict["out_rgb"][0,...,2] *= np.power(out_wb[0,3],1/2.2)
+        
+        if not os.path.isdir("%s/%s/%d_%d"%(task, test_folder, folderid,fileid)):
+            os.makedirs("%s/%s/%d_%d"%(task, test_folder, folderid,fileid))
+
+        cropped_rgb_camera_orig = Image.fromarray(np.uint8(cropped_rgb_camera_orig[raw_tol:-raw_tol,raw_tol:-raw_tol,:]*255))
+        cropped_rgb_camera_orig_lr = cropped_rgb_camera_orig.resize((int(cropped_rgb_camera_orig.width / up_ratio),
+            int(cropped_rgb_camera_orig.height / up_ratio)))
+        cropped_rgb_camera_orig.save("%s/%s/%d_%d/input_rgb_camera_naive.png"%(task,test_folder,folderid,fileid), compress_level=1)
+        cropped_rgb_camera_orig_lr.save("%s/%s/%d_%d/input_rgb_camera_naive_orig.png"%(task,test_folder,folderid,fileid), compress_level=1)
 
         # argmin = np.squeeze(out_objDict['argmin'])
         # argminx, argminy = np.unravel_index(argmin, (tol,tol))
         # print("Found best match pos:", argminx, argminy)
         # translation_matrix = np.float32([[1,0,argminx*stride], [0,1,argminy*stride]])
         # target_rgb_match = utils.apply_transform_single(cropped_rgb, translation_matrix, tar_h, tar_w)
-        
-        if not os.path.isdir("%s/%s/%d"%(task, test_folder, id)):
-            os.makedirs("%s/%s/%d"%(task, test_folder, id))
+
         gt_match = Image.fromarray(np.uint8(utils.clipped(
-            utils.apply_gamma(np.squeeze(out_objDict['target_translated']),is_apply=is_gt_gamma==False))*255))
+            utils.apply_gamma(np.squeeze(out_objDict['target_translated']),is_apply=False))*255))
         output_rgb = Image.fromarray(np.uint8(utils.clipped(
-            utils.apply_gamma(np.squeeze(out_objDict["out_rgb"][0,...]),is_apply=is_gt_gamma==False))*255))
+            utils.apply_gamma(np.squeeze(out_objDict["out_rgb"][0,...]),is_apply=False))*255))
         gt_rgb = Image.fromarray(np.uint8(utils.clipped(
-            utils.apply_gamma(cropped_rgb,is_apply=is_gt_gamma==False))*255))
+            utils.apply_gamma(cropped_rgb,is_apply=False))*255))
         gt_rgb_cropped = Image.fromarray(np.uint8(utils.clipped(
-            utils.apply_gamma(cropped_rgb[tol:tol+tar_h_val,tol:tol+tar_w_val,:],is_apply=is_gt_gamma==False))*255))
+            utils.apply_gamma(cropped_rgb[tol:tol+tar_h_val,tol:tol+tar_w_val,:],is_apply=False))*255))
         input_rgb = Image.fromarray(np.uint8(utils.clipped(
-            utils.apply_gamma(input_rgb_img_orig,is_apply=is_gt_gamma==False))*255))
+            utils.apply_gamma(input_rgb_img_orig,is_apply=False))*255))
         input_rgb_cropped = Image.fromarray(np.uint8(utils.clipped(
             utils.apply_gamma(cropped_raw_rgb,is_apply=False))))
         # print("input_rgb_cropped", input_rgb_cropped)
-        input_rgb_cropped.save("%s/%s/%d/input_rgb_cropped_orig.png"%(task,test_folder,id))
+        input_rgb_cropped.save("%s/%s/%d_%d/input_rgb_cropped_orig.png"%(task,test_folder,folderid,fileid), compress_level=1)
         input_rgb_cropped = input_rgb_cropped.resize((int(input_rgb_cropped.width * up_ratio),
                     int(input_rgb_cropped.height * up_ratio)), Image.ANTIALIAS)
         if 'lum' in task:
@@ -536,12 +612,12 @@ elif mode == 'test':
 
         result.write("test %d:%s: %f, %f\n"%(ct, test_input_paths[id], psnr_input[ct], psnr_output[ct]))
         
-        input_rgb.save("%s/%s/%d/input_rgb.png"%(task,test_folder,id))
-        input_rgb_cropped.save("%s/%s/%d/input_rgb_cropped.png"%(task,test_folder,id))
-        output_rgb.save("%s/%s/%d/out_rgb.png"%(task,test_folder,id))
-        gt_rgb.save("%s/%s/%d/tar_rgb.png"%(task,test_folder,id))
-        gt_rgb_cropped.save("%s/%s/%d/tar_rgb_cropped.png"%(task,test_folder,id))
-        gt_match.save("%s/%s/%d/tar_rgb_match.png"%(task,test_folder,id))
+        input_rgb.save("%s/%s/%d_%d/input_rgb.png"%(task,test_folder,folderid,fileid), compress_level=1)
+        input_rgb_cropped.save("%s/%s/%d_%d/input_rgb_cropped.png"%(task,test_folder,folderid,fileid), compress_level=1)
+        output_rgb.save("%s/%s/%d_%d/out_rgb.png"%(task,test_folder,folderid,fileid), compress_level=1)
+        gt_rgb.save("%s/%s/%d_%d/tar_rgb.png"%(task,test_folder,folderid,fileid), compress_level=1)
+        gt_rgb_cropped.save("%s/%s/%d_%d/tar_rgb_cropped.png"%(task,test_folder,folderid,fileid), compress_level=1)
+        gt_match.save("%s/%s/%d_%d/tar_rgb_match.png"%(task,test_folder,folderid,fileid), compress_level=1)
     result.write("test mean: %f, %f\n"%(np.nanmean(psnr_input), np.nanmean(psnr_output)))
     result.close()
 
@@ -567,25 +643,35 @@ elif mode == 'inference':
                 rgb_path = os.path.dirname(test_input_paths[id]).replace(subfolder, subfolder+'_process') + "/rawpng/" + \
                     os.path.basename(inference_path).replace(".ARW","_gamma.png")
             else:
-                rgb_path = os.path.dirname(test_input_paths[id]).replace(subfolder, subfolder+'_process') + "/rawpng/" + \
-                    os.path.basename(inference_path).replace(".ARW",".png")
+                rgb_path = inference_path.replace(".ARW",".JPG")
+                # rgb_path = os.path.dirname(test_input_paths[id]).replace(subfolder, subfolder+'_process') + "/rawpng/" + \
+                #     os.path.basename(inference_path).replace(".ARW",".png")
 
-            input_dict = utils.read_input_2x(inference_path, rgb_path, is_training=False, id_shift=up_ratio)
+            if up_ratio == 4:
+                id_shift = 3
+            elif up_ratio == 8:
+                id_shift = 5
+            elif id_shift == 2:
+                id_shift = 2
+            input_dict = utils.read_input_2x(inference_path, rgb_path, is_training=False, id_shift=id_shift)
             if input_dict is None:
                 continue
-            print("Testing on %d th image : %s"%(id, inference_path))
+            print("Inferencing on %d th image"%(id))
             print(input_dict['src_path_raw'])
+            fileid = int(os.path.basename(input_dict['src_path_raw']).split('.')[0])
+            folderid = int(os.path.basename(os.path.dirname(input_dict['src_path_raw'])))
             
             processed_dict = utils.prepare_input(input_dict, up_ratio=up_ratio, mode='inference')
             input_raw_img_orig = processed_dict['input_raw']
             input_raw_orig = rawpy.imread(input_dict['src_path_raw'])
-            input_rgb_img_orig = input_raw_orig.postprocess(no_auto_bright=True,use_camera_wb=False,output_bps=8)
-            row, col = input_raw_img_orig.shape[0:2]
-            #tar_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+os.path.basename(input_dict['tar_path'].split('.')[0]+'.png'))
-            #tar_rgb_orig = utils.crop_fov(np.array(tar_rgb), 1./input_dict['ratio_ref1'])
-            #target_rgb_img_orig, transformed_corner = utils.post_process_rgb(tar_rgb_orig,
-            #        (int(col*2*up_ratio),int(row*2*up_ratio)), processed_dict['tform'])
-            input_rgb_img_orig = utils.crop_fov(input_rgb_img_orig, 1./input_dict['ratio_ref2'])
+            # input_rgb_img_orig = input_raw_orig.postprocess(gamma=(1, 1),no_auto_bright=True,use_camera_wb=False,output_bps=8)
+            # row, col = input_raw_img_orig.shape[0:2]
+            # #tar_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+os.path.basename(input_dict['tar_path'].split('.')[0]+'.png'))
+            # #tar_rgb_orig = utils.crop_fov(np.array(tar_rgb), 1./input_dict['ratio_ref1'])
+            # #target_rgb_img_orig, transformed_corner = utils.post_process_rgb(tar_rgb_orig,
+            # #        (int(col*2*up_ratio),int(row*2*up_ratio)), processed_dict['tform'])
+            # input_rgb_img_orig = utils.crop_fov(input_rgb_img_orig, 1./input_dict['ratio_ref2'])
+            input_rgb_img_orig = processed_dict['input_rgb']
             if input_raw_img_orig is None:
                 print('Invalid input raw or rgb for %s'%(inference_path))
                 continue
@@ -599,29 +685,47 @@ elif mode == 'inference':
                 options=config_pb2.RunOptions(report_tensor_allocations_upon_oom=True))
             
             print("Finish inference ... ")
-            if not os.path.isdir("%s/%s/%d"%(task, inference_folder, id)):
-                os.makedirs("%s/%s/%d"%(task, inference_folder, id))
+            print("Stats: ", out_objDict["out_rgb"][0,...].mean(), out_objDict["out_rgb"][0,...].max(), out_objDict["out_rgb"][0,...].min())
+            if not os.path.isdir("%s/%s/%d_%d"%(task, inference_folder, folderid, fileid)):
+                os.makedirs("%s/%s/%d_%d"%(task, inference_folder, folderid, fileid))
+            out_wb = input_dict['src_wb']
+            print("white balance: ",out_wb)
+            out_objDict["out_rgb"][0,...,0] *= np.power(out_wb[0,0],1/2.2)
+            out_objDict["out_rgb"][0,...,1] *= np.power(out_wb[0,1],1/2.2)
+            out_objDict["out_rgb"][0,...,2] *= np.power(out_wb[0,3],1/2.2)
+
             output_rgb = Image.fromarray(np.uint8(
-                utils.apply_gamma(utils.clipped(np.squeeze(out_objDict["out_rgb"][0,...])),is_apply=is_gt_gamma==False)*255))
-            input_rgb = Image.fromarray(input_rgb_img_orig)
-            input_rgb.save("%s/%s/%d/input_rgb.png"%(task,inference_folder,id))
+                utils.apply_gamma(utils.clipped(np.squeeze(out_objDict["out_rgb"][0,...])),is_apply=False)*255))
+            input_rgb = Image.fromarray(np.uint8(utils.apply_gamma(input_rgb_img_orig[int(raw_tol/2)*(4):-int(raw_tol/2)*(4),
+                                        int(raw_tol/2)*(4):-int(raw_tol/2)*(4),:],is_apply=False)*255))
+            input_rgb.save("%s/%s/%d_%d/input_rgb.png"%(task,inference_folder,folderid,fileid))
             input_rgb_naive = input_rgb.resize((int(input_rgb.width * up_ratio),
-                int(input_rgb.height * up_ratio)), Image.ANTIALIAS)
-            input_rgb_naive.save("%s/%s/%d/input_rgb_naive.png"%(task,inference_folder,id))
-            output_rgb.save("%s/%s/%d/out_rgb.png"%(task,inference_folder,id))
+                int(input_rgb.height * up_ratio)), Image.BILINEAR)
+            input_rgb_naive.save("%s/%s/%d_%d/input_rgb_naive.png"%(task,inference_folder,folderid,fileid))
+            output_rgb.save("%s/%s/%d_%d/out_rgb.png"%(task,inference_folder,folderid,fileid))
 
 elif mode == 'inference_single':
-        test_input_paths=utils.read_paths(test_root, type=file_type)
-        up_ratio = 6.8
-        scale_fov = 6.8
+    from sklearn.feature_extraction import image
+    patch_sz = 0
+    patch_stride = patch_sz-raw_tol*2
+    
+    up_ratio_list = [3]
+    for up_ratio in up_ratio_list:
+        scale = 10.
+        resize_ratio = up_ratio/scale
 
         inference_folder = 'inference_single'
         if not os.path.isdir("%s/%s"%(task, inference_folder)):
             os.makedirs("%s/%s"%(task, inference_folder))
-        
-        inference_path = "/export/vcl-nfs2/shared/xuanerzh/zoom/test/dslr_10x_both/00062/00006.ARW"
-        id = 247
-        inference_rgb_path = "/export/vcl-nfs2/shared/xuanerzh/zoom/test/dslr_10x_both_process/00062/rawpng/00006.png"
+        inference_path = "/export/vcl-nfs2/shared/xuanerzh/zoom/test/dslr_10x_both/00163/00007.ARW"
+        id = '163-%s'%(up_ratio)
+
+        if not os.path.isdir("%s/%s/%s"%(task, inference_folder, id)):
+            os.makedirs("%s/%s/%s"%(task, inference_folder, id))
+
+        wb_txt = os.path.dirname(inference_path)+'/wb.txt'
+        out_wb = utils.read_wb(wb_txt, key=os.path.basename(inference_path).split('.')[0]+":")
+        print("white balance: ",out_wb)
 
         input_bayer = utils.get_bayer(inference_path)
         input_raw_reshape = utils.reshape_raw(input_bayer)
@@ -639,25 +743,61 @@ elif mode == 'inference_single':
 
         print("Testing on image : %s"%(inference_path), input_raw_img_orig.shape)
 
-        # prepare input to pre-align
-        row, col = input_raw_img_orig.shape[0:2]
-        input_raw_img = np.expand_dims(input_raw_img_orig, 0)
-        size = min(row, col) * 0.4
-        # input_raw_img = np.expand_dims(input_raw_img_orig[int(row*0.15):int(row*0.15+size), int(col*0.4):int(col*0.4+size), :], 0)
+        if patch_sz > 0:
+            row, col = input_raw_img_orig.shape[0:2]
+            input_patches1 = image.extract_patches(input_raw_img_orig[...,0], (patch_sz, patch_sz), extraction_step=patch_stride)
+            input_patches2 = image.extract_patches(input_raw_img_orig[...,1], (patch_sz, patch_sz), extraction_step=patch_stride)
+            input_patches3 = image.extract_patches(input_raw_img_orig[...,2], (patch_sz, patch_sz), extraction_step=patch_stride)
+            input_patches4 = image.extract_patches(input_raw_img_orig[...,3], (patch_sz, patch_sz), extraction_step=patch_stride)
+            # if no overlap
+            for pi in range(input_patches1.shape[0]):
+                for pj in range(input_patches1.shape[1]):
+                    input_patch_concat = np.stack((input_patches1[pi,pj],
+                        input_patches2[pi,pj],
+                        input_patches3[pi,pj],
+                        input_patches4[pi,pj]), 2)
+                    input_raw_img = np.expand_dims(input_patch_concat, 0)
 
-        # out_objDict=sess.run(objDict,feed_dict={input_raw:input_raw_img})
-        out_objDict=sess.run(objDict,feed_dict={input_raw:input_raw_img})
-        
-        print("Finish inference ... ")
-        if not os.path.isdir("%s/%s/%d"%(task, inference_folder, id)):
-            os.makedirs("%s/%s/%d"%(task, inference_folder, id))
-        output_rgb = Image.fromarray(np.uint8(utils.apply_gamma(utils.clipped(out_objDict["out_rgb"][0,...]),is_apply=is_gt_gamma==False)*255))
+                    out_objDict=sess.run(objDict,feed_dict={input_raw:input_raw_img})
+                    out_objDict["out_rgb"][0,...,0] *= np.power(out_wb[0,0],1/2.2)
+                    out_objDict["out_rgb"][0,...,1] *= np.power(out_wb[0,1],1/2.2)
+                    out_objDict["out_rgb"][0,...,2] *= np.power(out_wb[0,3],1/2.2)
+                    print("Finish inference for patch %d. %d ... "%(pi,pj))
+                    out_sz = out_objDict["out_rgb"][0,...].shape[:2]
+                    if pi == 0 and pj == 0:
+                        img_recons = np.zeros((input_patches1.shape[0] * out_sz[0], input_patches1.shape[1] * out_sz[1], 3))
+                    print(img_recons.shape, out_sz)
+                    img_recons[pi*out_sz[0]:(pi+1)*out_sz[0],
+                        pj*out_sz[1]:(pj+1)*out_sz[1],...] = out_objDict["out_rgb"][0,...]
+
+                    output_rgb = Image.fromarray(np.uint8(utils.apply_gamma(utils.clipped(out_objDict["out_rgb"][0,...]),is_apply=False)*255))
+                    output_rgb = output_rgb.resize((int(output_rgb.width * resize_ratio),
+                        int(output_rgb.height * resize_ratio)), Image.ANTIALIAS)
+                    output_rgb.save("%s/%s/%s/out_rgb_%d-%d.png"%(task,inference_folder,id,pi,pj))
+            img_recons = Image.fromarray(np.uint8(utils.apply_gamma(utils.clipped(img_recons),is_apply=False)*255))
+            img_recons = img_recons.resize((int(img_recons.width * resize_ratio),
+                int(img_recons.height * resize_ratio)), Image.ANTIALIAS)
+            img_recons.save("%s/%s/%s/out_rgb.png"%(task,inference_folder,id), compress_level=1)
+        else:
+            input_raw_img = np.expand_dims(input_raw_img_orig, 0)
+            out_objDict=sess.run(objDict,feed_dict={input_raw:input_raw_img})
+            out_objDict["out_rgb"][0,...,0] *= np.power(out_wb[0,0],1/2.2)
+            out_objDict["out_rgb"][0,...,1] *= np.power(out_wb[0,1],1/2.2)
+            out_objDict["out_rgb"][0,...,2] *= np.power(out_wb[0,3],1/2.2)
+            output_rgb = Image.fromarray(np.uint8(utils.apply_gamma(utils.clipped(out_objDict["out_rgb"][0,...]),is_apply=False)*255))
+            output_rgb = output_rgb.resize((int(output_rgb.width * resize_ratio),
+                int(output_rgb.height * resize_ratio)), Image.ANTIALIAS)
+            output_rgb.save("%s/%s/%s/out_rgb_%d-%d.png"%(task,inference_folder,id,0,0), 'PNG', compress_level=1)
+
         input_camera_rgb = Image.fromarray(np.uint8(utils.clipped(cropped_input_rgb)*255))
         input_rawpy_rgb = Image.fromarray(np.uint8(cropped_input_rgb_rawpy))
-        input_camera_rgb_naive = input_camera_rgb.resize((int(input_camera_rgb.width * up_ratio),
-            int(input_camera_rgb.height * up_ratio)), Image.ANTIALIAS)
-        input_rawpy_rgb = input_rawpy_rgb.resize((int(input_rawpy_rgb.width * up_ratio),
-            int(input_rawpy_rgb.height * up_ratio)), Image.ANTIALIAS)
-        input_camera_rgb_naive.save("%s/%s/%d/input_rgb_camera_naive.png"%(task,inference_folder,id))
-        input_rawpy_rgb.save("%s/%s/%d/input_rgb_rawpy_naive.png"%(task,inference_folder,id))
-        output_rgb.save("%s/%s/%d/out_rgb.png"%(task,inference_folder,id))
+        input_camera_rgb.save("%s/%s/%s/input_rgb_camera_orig.png"%(task,inference_folder,id), compress_level=1)
+        input_camera_rgb_naive = input_camera_rgb.resize((int(input_camera_rgb.width * up_ratio * resize_ratio),
+            int(input_camera_rgb.height * up_ratio * resize_ratio)), Image.ANTIALIAS)
+        input_rawpy_rgb = input_rawpy_rgb.resize((int(input_rawpy_rgb.width * up_ratio * resize_ratio),
+            int(input_rawpy_rgb.height * up_ratio * resize_ratio)), Image.ANTIALIAS)
+        input_camera_rgb_naive = input_camera_rgb_naive.resize((int(input_camera_rgb_naive.width * up_ratio * resize_ratio),
+            int(input_rawpy_rgb.input_camera_rgb_naive * up_ratio * resize_ratio)), Image.ANTIALIAS)
+        input_camera_rgb_naive.save("%s/%s/%s/input_rgb_camera_naive.png"%(task,inference_folder,id), compress_level=1)
+        input_rawpy_rgb.save("%s/%s/%s/input_rgb_rawpy_naive.png"%(task,inference_folder,id), compress_level=1)
+        

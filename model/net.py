@@ -388,6 +388,18 @@ def SRResnet(gen_inputs, gen_output_channels, up_ratio=2, reuse=False, up_type='
                     # net = srganops.pixelShuffler(net, scale=2)
                     net = srganops.prelu_tf(net)
 
+            if up_ratio == 8:
+                with tf.variable_scope('deconv_stage3'):
+                    net = srganops.conv2(net, 3, 256, 1, scope='conv')
+                    net = srganops.deconv2(net, 3, 256, 2)
+                    # net = srganops.pixelShuffler(net, scale=2)
+                    net = srganops.prelu_tf(net)
+                with tf.variable_scope('deconv_stage4'):
+                    net = srganops.conv2(net, 3, 256, 1, scope='conv')
+                    net = srganops.deconv2(net, 3, 256, 2)
+                    # net = srganops.pixelShuffler(net, scale=2)
+                    net = srganops.prelu_tf(net)
+
             with tf.variable_scope('deconv_output_stage'):
                 net = srganops.conv2(net, 9, gen_output_channels, 1, scope='conv')
 

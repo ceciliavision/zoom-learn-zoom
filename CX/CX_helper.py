@@ -121,7 +121,7 @@ def crop_quarters(feature_tensor):
     return feature_tensor
 
 
-def CX_loss_helper(vgg_A, vgg_B, layer, CX_config):
+def CX_loss_helper(vgg_A, vgg_B, CX_config):
     if CX_config.crop_quarters is True:
         vgg_A = crop_quarters(vgg_A)
         vgg_B = crop_quarters(vgg_B)

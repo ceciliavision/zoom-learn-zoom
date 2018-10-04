@@ -85,7 +85,7 @@ class CSFlow:
                     patches_HWCN_i = cs_flow.patch_decomposition(T_features_i)
                     cosine_dist_i = tf.nn.conv2d(I_features_i, patches_HWCN_i, strides=[1, 1, 1, 1],
                                                         padding='VALID', use_cudnn_on_gpu=True, name='cosine_dist')
-                    print("create_using_dotP: feature dim", i, cosine_dist_i.shape)
+                    # print("create_using_dotP: feature dim", i, cosine_dist_i.shape)
                     cosine_dist_l.append(cosine_dist_i)
 
                 cs_flow.cosine_dist = tf.concat(cosine_dist_l, axis = 0)
@@ -114,11 +114,12 @@ class CSFlow:
     # --
     @staticmethod
     def create(I_features, T_features, distance, nnsigma=float(1.0), b=float(1.0)):
+        # added spatial constraint, by having coordinates as additional feature maps
         N,H,W,C=T_features.shape.as_list()
         rows = tf.range(H)
         cols = tf.range(W)
-        rows = tf.cast(rows, dtype=tf.float32)/(H)
-        cols = tf.cast(cols, dtype=tf.float32)/(W)
+        rows = tf.cast(rows, dtype=tf.float32)/(H) * 255.
+        cols = tf.cast(cols, dtype=tf.float32)/(W) * 255.
         features_grid = tf.meshgrid(rows, cols)
         features_grid = tf.concat([tf.expand_dims(features_grid_i, 2) for features_grid_i in features_grid], axis=2)
         features_grid = tf.expand_dims(features_grid, axis=0)
@@ -209,7 +210,10 @@ def CX_loss(T_features, I_features, distance=Distance.L2, nnsigma=float(1.0), w_
         cs_sp = cs_flow_sp.cs_NHWC
         cs_comb = cs * (1.-w_spatial) + cs_sp * w_spatial
         k_max_NC = tf.reduce_max(cs_comb, axis=height_width_axis)
-        k_arg_max_NC = tf.argmax(cs_comb, axis=3)
+        
+        k_arg_max_NC = tf.argmax(tf.reshape(cs_comb, [tf.shape(cs_comb)[0], -1, tf.shape(cs_comb)[3]]), axis=1)
+        # k_max_NC_feature = tf.slice()
+
         CS = tf.reduce_mean(k_max_NC, axis=[1])
         CX_as_loss = 1 - CS
         CX_loss = -tf.log(1 - CX_as_loss)

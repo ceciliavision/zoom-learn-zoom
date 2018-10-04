@@ -7,12 +7,14 @@ from PIL import Image
 import numpy as np
 from timeit import default_timer as timer
 import scipy.stats as stats
+import tifffile as tiff
 
 # import tifffile
 
 ######### Local Vars
 FOCAL_CODE = 37386
 ORIEN_CODE = 274
+white_lv = 16383 # 16383 for 14 bits, 4095 for 12 bits
 IMG_EXTENSIONS = [
     '.jpg', '.JPG', '.jpeg', '.JPEG', 'tiff',
     '.png', '.PNG', '.ppm', '.PPM', '.bmp', '.BMP',
@@ -52,73 +54,131 @@ def read_input_2x(path_raw, path_process, id_shift=4, is_training=True):
     input_dict = {}
     fileid = int(os.path.basename(path_raw).split('.')[0])
     if is_training:
-        if fileid >= (7-id_shift):
+        if fileid > (7-id_shift):
             return None
     else: # testing on _4
-        if fileid != 7-id_shift:
-            print("Please test with %d"%(7-id_shift))
+        if fileid != 7-id_shift:# and fileid != 6-id_shift:
+            print("Please test with %d or %d"%(7-id_shift, 6-id_shift))
             return None
     path2_raw = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(fileid+id_shift))
     path_raw_ref = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(1))
     try:
+        ratio = 0
         focal1 = readFocal_pil(path_raw)
         focal2 = readFocal_pil(path2_raw)
         focal_ref = readFocal_pil(path_raw_ref)
+        if focal2 is None or focal1 is None:
+            return None
         ratio = focal1/focal2
         if ratio > 4.5:
             path2_raw = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(fileid+id_shift-1))
             try:
                 focal2 = readFocal_pil(path2_raw)
             except:
-                print('[x] Cannot open %s or %s'%(path_raw, path2_raw))
+                print('[x] high ratio ; cannot open %s or %s'%(path_raw, path2_raw))
                 return None
     except:
-        print('[x] Cannot open %s or %s'%(path_raw, path2_raw))
+        print('[x] Cannot open %s or %s, ratio %s'%(path_raw, path2_raw, ratio))
         return None
     
-    if not os.path.isfile(os.path.dirname(path_process)+'/tform.txt'):
-        print('[x] Cannot open %s'%(os.path.dirname(path_process)+'/tform.txt'))
+    tform_txt = os.path.dirname(path_process)+'/tform.txt'
+    camera_txt = os.path.dirname(path_process.replace("dslr_10x_both","dslr_10x_both_process"))+'/rawpng/tform_camera.txt'
+    wb_txt = os.path.dirname(path_process)+'/wb.txt'
+    if not os.path.isfile(tform_txt):
+        print('[x] Cannot open %s'%(tform_txt))
+        return None
+    if not os.path.isfile(wb_txt):
+        print('[x] Cannot open %s'%(wb_txt))
+        return None
+    if not os.path.isfile(camera_txt):
+        print('[x] Cannot open %s'%(camera_txt))
         return None
     
     ratio_ref1 = focal_ref/focal1
     ratio_ref2 = focal_ref/focal2
-    tar_path = path_process
     src_path = path_process.replace(os.path.basename(path_process).split('.')[0].split('_')[0], "%05d"%(fileid+2))
     
-    print("Learn a zoom of %s from %s to %s"%(ratio, path2_raw, tar_path))
+    print("Learn a zoom of %s from %s to %s"%(ratio, path2_raw, path_process))
     input_dict['src_path_raw'] = path2_raw
     input_dict['tar_path_raw'] = path2_raw
     input_dict['src_path'] = src_path
-    input_dict['tar_path'] = tar_path
+    input_dict['tar_path'] = path_process
     input_dict['ratio_ref1'] = ratio_ref1
     input_dict['ratio_ref2'] = ratio_ref2
     input_dict['ratio'] = ratio
-    input_dict['src_tform'] = read_tform(os.path.dirname(tar_path)+'/tform.txt',
-        key=os.path.basename(path2_raw).split('.')[0])
-    input_dict['tar_tform'] = read_tform(os.path.dirname(tar_path)+'/tform.txt',
-        key=os.path.basename(tar_path).split('.')[0])
+    input_dict['src_tform'] = read_tform(tform_txt, key=os.path.basename(path2_raw).split('.')[0])
+    input_dict['tar_tform'] = read_tform(tform_txt, key=os.path.basename(path_process).split('.')[0])
+    input_dict['src_wb'] = read_wb(wb_txt, key=os.path.basename(path2_raw).split('.')[0]+":")
+    input_dict['tar_wb'] = read_wb(wb_txt, key=os.path.basename(path_process).split('.')[0]+":")
+    input_dict['camera_tform'] = read_tform(camera_txt, key='00002:')
     return input_dict
     
 # 35mm equivalent focal length
 def readFocal_pil(image_path):
     if 'ARW' in image_path:
         image_path = image_path.replace('ARW','JPG')
-    img = Image.open(image_path)
+    try:
+        img = Image.open(image_path)
+    except:
+        return None
     exif_data = img._getexif()
     return exif_data[FOCAL_CODE][0]/exif_data[FOCAL_CODE][1]
 
+### CHECK
 def readOrien_pil(image_path):
     img = Image.open(image_path)
     exif_data = img._getexif()
     return exif_data[ORIEN_CODE]
 
+### CHECK
+def read_tform(txtfile, key, model='ECC'):
+    if model in ['ECC', 'RIGID']:
+        tform = np.eye(2, 3, dtype=np.float32)
+    else:
+        tform = np.eye(3, 3, dtype=np.float32)
+    with open(txtfile) as f:
+        for l in f:
+            if "00001-"+key in l:
+                for i in range(tform.shape[0]):
+                    nextline = next(f)
+                    tform[i,:] = nextline.split()
+    return tform
+
+### CHECK
+def read_wb(txtfile, key):
+    wb = np.zeros((1,4))
+    with open(txtfile) as f:
+        for l in f:
+            if key in l:
+                for i in range(wb.shape[0]):
+                    nextline = next(f)
+                    try:
+                        wb[i,:] = nextline.split()
+                    except:
+                        print("WB error XXXXXXX")
+                        print(txtfile)
+    wb = wb.astype(np.float)
+    return wb
+
+### CHECK
 def get_bayer(path):
-    raw = rawpy.imread(path)
+    try:
+        raw = rawpy.imread(path)
+    except:
+        return None
     bayer = raw.raw_image_visible.astype(np.float32)
-    bayer = (bayer - 512)/ (16383 - 512) #subtract the black level
+    # bayer_shape = bayer.shape
+    # H = bayer_shape[0]
+    # W = bayer_shape[1]
+    # bayer[0:H:2,0:W:2] *= wb[0,0]
+    # bayer[0:H:2,1:W:2] *= wb[0,1]
+    # bayer[1:H:2,1:W:2] *= wb[0,3]
+    # bayer[1:H:2,0:W:2] *= wb[0,2]
+    bayer = (bayer - 512)/ (white_lv - 512) #subtract the black level
     return bayer
 
 def reshape_raw(bayer):
+    # print(wb)
     bayer = np.expand_dims(bayer,axis=2) 
     bayer_shape = bayer.shape
     H = bayer_shape[0]
@@ -147,7 +207,7 @@ def write_raw(source_raw, target_raw_path):
     H, W = source_raw.shape[:2]
     for indi,i in enumerate(range(H)):
         for indj,j in enumerate(range(W)):
-            target_raw.raw_image_visible[indi, indj] = source_raw[i, j] * (16383 - 512) + 512
+            target_raw.raw_image_visible[indi, indj] = source_raw[i, j] * (white_lv - 512) + 512
     rgb = target_raw.postprocess(no_auto_bright=True,
         use_camera_wb=False,
         output_bps=8)
@@ -159,14 +219,25 @@ def prepare_input(input_dict, up_ratio=2., mode='train', is_pack=True):
     ratio = input_dict['ratio']
     ratio_offset = up_ratio/ratio ####### HHH #######
     scale_inv_offset = get_scale_matrix(1./ratio_offset)
+    scale_offset = get_scale_matrix(ratio_offset)
     scale_ref = get_scale_matrix(input_dict['ratio_ref1'])
     scale_inv_ref = get_scale_matrix(1./input_dict['ratio_ref1'])
     inv_src_tform = cv2.invertAffineTransform(input_dict['src_tform'])
     combined_tform = concat_tform([scale_ref,
-        np.append(inv_src_tform,[[0,0,1]],0),
         np.append(input_dict['tar_tform'],[[0,0,1]],0),
+        np.append(inv_src_tform,[[0,0,1]],0),
         scale_inv_ref,
         scale_inv_offset])
+    camera_tform = concat_tform([scale_offset,
+        scale_ref,
+        np.append(input_dict['camera_tform'], [[0,0,1]],0),
+        scale_inv_ref,
+        scale_inv_offset])
+    inv_tar_tform = cv2.invertAffineTransform(input_dict['tar_tform'])
+    combined_tform_src = concat_tform([get_scale_matrix(input_dict['ratio_ref2']),
+        np.append(inv_tar_tform,[[0,0,1]],0),
+        get_scale_matrix(1./input_dict['ratio_ref2']),
+        scale_inv_ref])
 
     # concat_tform = np.matmul(np.append(input_dict['tar_tform'],[[0,0,1]],0),
     #     np.append(scale_offset,[[0,0,1]],0))
@@ -174,17 +245,23 @@ def prepare_input(input_dict, up_ratio=2., mode='train', is_pack=True):
     # print("concat_tform",combined_tform)
 
     input_raw = get_bayer(input_dict['src_path_raw'])
+    if input_raw is None:
+        with open('./logerror.txt'%(task), 'a') as floss:
+            floss.write('error reading raw of: %s\n'%(input_dict['src_path_raw']))
+        return None
     input_raw_reshape = reshape_raw(input_raw)
     cropped_raw = crop_fov(input_raw_reshape, 1./input_dict['ratio_ref2'])
     out_dict['input_raw'] = cropped_raw
     try:
-        input_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+
-            os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.png'))
-        # print("input rgb path:", os.path.dirname(input_dict['tar_path'])+'/'+
-        #     os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.png'))
+        if '.tif' in input_dict['src_path']:
+            input_rgb = tiff.imread(os.path.dirname(input_dict['tar_path'])+'/'+
+                os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.tif'))
+        else:
+            input_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+
+                os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.JPG'))
     except Exception as exception:
         print("Failed to open %s"%(os.path.dirname(input_dict['tar_path'])+'/'+
-            os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.png')))
+            os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.JPG')))
         return None
     input_rgb = np.array(input_rgb)
     if is_pack:
@@ -196,6 +273,8 @@ def prepare_input(input_dict, up_ratio=2., mode='train', is_pack=True):
     cropped_input_rgb = image_float(cropped_input_rgb)
     out_dict['input_rgb'] = cropped_input_rgb
     out_dict['tform'] = combined_tform[0:2,...]
+    out_dict['tform_src'] = combined_tform_src[0:2,...]
+    out_dict['camera_tform']  = camera_tform[0:2,...]
     if mode=='inference':
         return out_dict
 
@@ -205,18 +284,20 @@ def prepare_input(input_dict, up_ratio=2., mode='train', is_pack=True):
     else:
         tar_raw_reshape = tar_raw
     try:
-        tar_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+
-            os.path.basename(input_dict['tar_path'].split('.')[0]+'.png'))
+        if '.tif' in input_dict['src_path']:
+            tar_rgb = tiff.imread(os.path.dirname(input_dict['tar_path'])+'/'+
+                os.path.basename(input_dict['tar_path'].split('.')[0]+'.tif'))
+        else:
+            tar_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+
+                os.path.basename(input_dict['tar_path'].split('.')[0]+'.JPG'))
     except Exception as exception:
         print("Failed to open %s"%os.path.dirname(input_dict['tar_path'])+'/'+
-            os.path.basename(input_dict['tar_path'].split('.')[0]+'.png'))
+            os.path.basename(input_dict['tar_path'].split('.')[0]+'.JPG'))
         return None
     tar_rgb = np.array(tar_rgb)
     cropped_rgb = crop_fov(tar_rgb, 1./input_dict['ratio_ref1'])
-    cropped_input_rgb = crop_fov(input_rgb, 1./input_dict['ratio_ref2'])
     tar_raw_reshape = reshape_raw(tar_raw)
     cropped_rgb = image_float(cropped_rgb)
-    cropped_input_rgb = image_float(cropped_input_rgb)
     out_dict['ratio_offset'] = ratio_offset
     out_dict['tar_rgb'] = cropped_rgb
     return out_dict
@@ -236,8 +317,7 @@ def concat_tform(tform_list):
     return tform_c
 
 # PIL image format
-def crop_pair(raw, image, croph, cropw, tol=32, ratio=2, type='central', fixx=0.5, fixy=0.5):
-    raw_tol = 4
+def crop_pair(raw, image, croph, cropw, tol=32, raw_tol=4, ratio=2, type='central', fixx=0.5, fixy=0.5):
     is_pad_h = False
     is_pad_w = False
     if type == 'central':
@@ -392,6 +472,8 @@ def bgr_gray(image_set):
 
 ### CHECK
 def image_float(image):
+    if image.max() < 2:
+        return image.astype(np.float32)
     if image.dtype is np.dtype(np.uint16):
         image = image.astype(np.float32) / (255*255)
     elif image.dtype is np.dtype(np.uint8):
@@ -411,20 +493,6 @@ def clipped(image):
         return np.minimum(np.maximum(image,0.0),1.0)
     else:
         return np.minimum(np.maximum(image,0.0),255.0)
-
-### CHECK
-def read_tform(txtfile, key, model='ECC'):
-    if model in ['ECC', 'RIGID']:
-        tform = np.eye(2, 3, dtype=np.float32)
-    else:
-        tform = np.eye(3, 3, dtype=np.float32)
-    with open(txtfile) as f:
-        for l in f:
-            if "00001-"+key in l:
-                for i in range(tform.shape[0]):
-                    nextline = next(f)
-                    tform[i,:] = nextline.split()
-    return tform
 
 ### CHECK
 def apply_transform(image_set, tform_set, tform_inv_set, t_type, scale=1.):
@@ -634,6 +702,7 @@ def unaligned_loss(prediction, target, tar_w, tar_h, tol, stride=1):
 ### CHECK
 def apply_gamma(image, gamma=2.22,is_apply=True):
     if not is_apply:
+        image[image < 0] = 0.
         return image
     if image.max() > 5:
         image = image_float(image)

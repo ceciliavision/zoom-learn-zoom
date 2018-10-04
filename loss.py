@@ -125,7 +125,7 @@ def compute_l2_loss(input, output):
 
 def compute_contextual_loss(input, output, reuse=False, w_spatial=0.1):
     CX = edict()
-    CX.crop_quarters = True
+    CX.crop_quarters = False
     CX.max_sampling_1d_size = 63
     CX.feat_layers = {'conv1_2' : 1.0, 'conv2_2' : 1.0, 'conv3_2': 0.5}
     CX.Dist = Distance.DotProduct # Distance.L2 # Distance.DotProduct
@@ -139,12 +139,39 @@ def compute_contextual_loss(input, output, reuse=False, w_spatial=0.1):
     CX_loss_argmax = []
     CX_loss_list = []
     for layer, w in CX.feat_layers.items():
-        CX_loss_i, CX_loss_arg_i = CX_loss_helper(vgg_real[layer], vgg_fake[layer], layer, CX)
+        CX_loss_i, CX_loss_arg_i = CX_loss_helper(vgg_real[layer], vgg_fake[layer], CX)
         CX_loss_list.append(w * CX_loss_i)
         CX_loss_argmax.append(CX_loss_arg_i)
     
     CX_loss = tf.reduce_sum(CX_loss_list)
     return CX_loss,CX_loss_argmax
+
+def compute_patch_contextual_loss(input, output, reuse=False, patch_sz=5, rates=1, w_spatial=0.1):
+    CX = edict()
+    CX.crop_quarters = False
+    CX.max_sampling_1d_size = 63
+    CX.Dist = Distance.L2 # Distance.L2 # Distance.DotProduct
+    CX.nn_stretch_sigma = 0.5 #0.1
+    CX.w_spatial = w_spatial
+
+    # to have the same scale as the VGG features
+    input_patch = tf.extract_image_patches(input*255.0, ksizes=[1,patch_sz,patch_sz,1], 
+        strides=[1,1,1,1],
+        rates=[1,rates,rates,1],
+        padding="SAME")
+    output_patch = tf.extract_image_patches(output*255.0, ksizes=[1,patch_sz,patch_sz,1], 
+        strides=[1,1,1,1],
+        rates=[1,rates,rates,1],
+        padding="SAME")
+    CX_loss_i, CX_loss_arg_i = CX_loss_helper(input_patch, output_patch, CX_config=CX)
+    
+    CX_loss = tf.reduce_sum(CX_loss_i)
+    return CX_loss,CX_loss_arg_i
+
+def normalize_patch(input, dim=3):
+    mean, var = tf.nn.moments(input, [dim], keep_dims=True)
+    normalized = tf.div(tf.subtract(input, mean), tf.sqrt(var)+1e-6)  
+    return normalized
 
 def compute_gradient(img):
     gradx=img[:,1:,:,:]-img[:,:-1,:,:]
