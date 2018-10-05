@@ -9,8 +9,6 @@ from timeit import default_timer as timer
 import scipy.stats as stats
 import tifffile as tiff
 
-# import tifffile
-
 ######### Local Vars
 FOCAL_CODE = 37386
 ORIEN_CODE = 274
@@ -461,12 +459,24 @@ def crop_fov(image, ratio):
     return cropped
 
 ### CHECK
+def post_process_rgb(target_rgb, out_size, tform):
+    target_rgb_warp = cv2.warpAffine(target_rgb, tform, (out_size[0], out_size[1]),
+        flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+    transformed_corner = get_transformed_corner(tform, out_size[0], out_size[1])
+    target_rgb_process = target_rgb_warp[transformed_corner['minw']:transformed_corner['maxw'],
+        transformed_corner['minh']:transformed_corner['maxh'],:]
+    return target_rgb_process, transformed_corner
+
+### CHECK
 # image_set: a list of images
-def bgr_gray(image_set):
+def bgr_gray(image_set, color='rgb'):
     img_num = len(image_set)
     image_gray_set = []
     for i in range (img_num):
-        image_gray_i = cv2.cvtColor(image_set[i], cv2.COLOR_BGR2GRAY)
+        if color == 'rgb':
+            image_gray_i = cv2.cvtColor(image_set[i], cv2.COLOR_RGB2GRAY)
+        elif color == 'bgr':
+            image_gray_i = cv2.cvtColor(image_set[i], cv2.COLOR_BGR2GRAY)
         image_gray_set.append(image_gray_i)
     return image_gray_set
 
@@ -487,12 +497,104 @@ def image_uint8(image):
     image = (image * 255).astype(np.uint8)
     return image
 
-
 def clipped(image):
     if image.max() <= 10:
         return np.minimum(np.maximum(image,0.0),1.0)
     else:
         return np.minimum(np.maximum(image,0.0),255.0)
+
+def postprocess_output(image_set, is_align=False, is_color=False):
+    image_set_processed = image_set
+    if is_align:
+        print("Running alignment")
+        image_ref_processed = image_set[0]
+        height, width = image_ref_processed.shape[0:2]
+        corner = np.array([[0,0,width,width],[0,height,0,height],[1,1,1,1]])
+
+        image_set_gray = bgr_gray(image_set,'rgb')
+        t, t_inv, valid_id = align_ecc(image_set, image_set_gray, 0, thre=0.2)
+        images_set_t, t, t_inv = apply_transform(image_set, t, t_inv, 'ECC', scale=1)
+        
+        for i in range(2):
+            corner_out = np.matmul(np.vstack([np.array(t_inv[i]),[0,0,1]]),corner)
+            # print(i, corner_out)
+            corner_out[0,:] = np.divide(corner_out[0,:],corner_out[2,:])
+            corner_out[1,:] = np.divide(corner_out[1,:],corner_out[2,:])
+            corner_out = corner_out[..., np.newaxis]
+            if i == 0:
+                corner_t = corner_out
+            else:
+                corner_t = np.append(corner_t,corner_out,2)
+        min_w = np.max(corner_t[0,[0,1],:])
+        min_w = int(np.max(np.ceil(min_w),0))
+        min_h = np.max(corner_t[1,[0,2],:])
+        min_h = int(np.max(np.ceil(min_h),0))
+        max_w = np.min(corner_t[0,[2,3],:])
+        max_w = int(np.floor(max_w))
+        max_h = np.min(corner_t[1,[1,3],:])
+        max_h = int(np.floor(max_h))
+
+        image_set_processed = []
+        for i in range(len(image_set)):
+            image_set_processed.append(images_set_t[i][min_h:max_h,min_w:max_w,:])
+    if is_color:
+        print("Color matching")
+        image_ref_processed = image_set_processed[0]
+        image_set_tmp = []
+        image_set_tmp.append(image_ref_processed)
+        for i in range(1,len(image_set)):
+            image_out_processed = image_set_processed[i]
+            image_tmp = np.zeros_like(image_out_processed)
+            for c in range(image_ref_processed.shape[2]):
+                image_tmp[:, :, c] = hist_match(image_out_processed[:, :, c], image_ref_processed[:, :, c])
+            image_set_tmp.append(image_tmp)
+        image_set_processed = image_set_tmp
+    return image_set_processed
+
+def hist_match(source, template):
+    """
+    Adjust the pixel values of a grayscale image such that its histogram
+    matches that of a target image.
+
+    Code adapted from
+    http://stackoverflow.com/questions/32655686/histogram-matching-of-two-images-in-python-2-x
+
+    Arguments:
+    -----------
+        source: np.ndarray
+            Image to transform; the histogram is computed over the flattened
+            array
+        template: np.ndarray
+            Template image; can have different dimensions to source
+    Returns:
+    -----------
+        matched: np.ndarray
+            The transformed output image
+    """
+
+    oldshape = source.shape
+    source = source.ravel()
+    template = template.ravel()
+
+    # get the set of unique pixel values and their corresponding indices and
+    # counts
+    s_values, bin_idx, s_counts = np.unique(source, return_inverse=True,
+                                            return_counts=True)
+    t_values, t_counts = np.unique(template, return_counts=True)
+
+    # take the cumsum of the counts and normalize by the number of pixels to
+    # get the empirical cumulative distribution functions for the source and
+    # template images (maps pixel value --> quantile)
+    s_quantiles = np.cumsum(s_counts).astype(np.float64)
+    s_quantiles /= s_quantiles[-1]
+    t_quantiles = np.cumsum(t_counts).astype(np.float64)
+    t_quantiles /= t_quantiles[-1]
+
+    # interpolate linearly to find the pixel values in the template image
+    # that correspond most closely to the quantiles in the source image
+    interp_t_values = np.interp(s_quantiles, t_quantiles, t_values)
+
+    return interp_t_values[bin_idx].reshape(oldshape)
 
 ### CHECK
 def apply_transform(image_set, tform_set, tform_inv_set, t_type, scale=1.):
@@ -672,15 +774,6 @@ def get_transformed_corner(tform, h, w):
     tformed['minh'] = max(0,min_h)
     tformed['maxh'] = min(h,max_h)
     return tformed
-
-### CHECK
-def post_process_rgb(target_rgb, out_size, tform):
-    target_rgb_warp = cv2.warpAffine(target_rgb, tform, (out_size[0], out_size[1]),
-        flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
-    transformed_corner = get_transformed_corner(tform, out_size[0], out_size[1])
-    target_rgb_process = target_rgb_warp[transformed_corner['minw']:transformed_corner['maxw'],
-        transformed_corner['minh']:transformed_corner['maxh'],:]
-    return target_rgb_process, transformed_corner
 
 ### CHECK
 def unaligned_loss(prediction, target, tar_w, tar_h, tol, stride=1):

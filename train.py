@@ -190,9 +190,6 @@ with tf.variable_scope(tf.get_variable_scope()):
             tf.summary.scalar('loss_context', loss_context)
             tf.summary.scalar('loss_context_patch', loss_context_patch)
         
-        # loss_smooth = losses.compute_charbonnier_loss(out_rgb)
-        # loss_smooth *= w_smooth
-        # tf.summary.scalar('loss_smooth', loss_smooth)
         lossDict['l1'] = tf.reduce_mean(tf.abs(out_rgb-target_translated))
         lossDict['smooth'] = loss_smooth
         lossDict['loss_context'] = loss_context
@@ -656,8 +653,7 @@ elif mode == 'inference':
             input_dict = utils.read_input_2x(inference_path, rgb_path, is_training=False, id_shift=id_shift)
             if input_dict is None:
                 continue
-            print("Inferencing on %d th image"%(id))
-            print(input_dict['src_path_raw'])
+            
             fileid = int(os.path.basename(input_dict['src_path_raw']).split('.')[0])
             folderid = int(os.path.basename(os.path.dirname(input_dict['src_path_raw'])))
             
@@ -676,40 +672,46 @@ elif mode == 'inference':
                 print('Invalid input raw or rgb for %s'%(inference_path))
                 continue
 
-            # prepare input to pre-align
-            
+            print("Inferencing on %s, with raw shape: "%(input_dict['src_path_raw']),  input_raw_img_orig.shape)
             input_raw_img = np.expand_dims(input_raw_img_orig, 0)
-
-            print("Processed image raw shapes: ", input_raw_img.shape)
             out_objDict=sess.run(objDict,feed_dict={input_raw:input_raw_img},
                 options=config_pb2.RunOptions(report_tensor_allocations_upon_oom=True))
             
             print("Finish inference ... ")
-            print("Stats: ", out_objDict["out_rgb"][0,...].mean(), out_objDict["out_rgb"][0,...].max(), out_objDict["out_rgb"][0,...].min())
+            # print("Stats: ", out_objDict["out_rgb"][0,...].mean(), out_objDict["out_rgb"][0,...].max(), out_objDict["out_rgb"][0,...].min())
             if not os.path.isdir("%s/%s/%d_%d"%(task, inference_folder, folderid, fileid)):
                 os.makedirs("%s/%s/%d_%d"%(task, inference_folder, folderid, fileid))
             out_wb = input_dict['src_wb']
-            print("white balance: ",out_wb)
+            # print("white balance: ",out_wb)
             out_objDict["out_rgb"][0,...,0] *= np.power(out_wb[0,0],1/2.2)
             out_objDict["out_rgb"][0,...,1] *= np.power(out_wb[0,1],1/2.2)
             out_objDict["out_rgb"][0,...,2] *= np.power(out_wb[0,3],1/2.2)
 
-            output_rgb = Image.fromarray(np.uint8(
-                utils.apply_gamma(utils.clipped(np.squeeze(out_objDict["out_rgb"][0,...])),is_apply=False)*255))
-            input_rgb = Image.fromarray(np.uint8(utils.apply_gamma(input_rgb_img_orig[int(raw_tol/2)*(4):-int(raw_tol/2)*(4),
-                                        int(raw_tol/2)*(4):-int(raw_tol/2)*(4),:],is_apply=False)*255))
-            input_rgb.save("%s/%s/%d_%d/input_rgb.png"%(task,inference_folder,folderid,fileid))
-            input_rgb_naive = input_rgb.resize((int(input_rgb.width * up_ratio),
-                int(input_rgb.height * up_ratio)), Image.BILINEAR)
-            input_rgb_naive.save("%s/%s/%d_%d/input_rgb_naive.png"%(task,inference_folder,folderid,fileid))
-            output_rgb.save("%s/%s/%d_%d/out_rgb.png"%(task,inference_folder,folderid,fileid))
+            output_image = out_objDict["out_rgb"][0,...]
+            input_image = input_rgb_img_orig[int(raw_tol/2)*(4):-int(raw_tol/2)*(4),int(raw_tol/2)*(4):-int(raw_tol/2)*(4),:]
+            output_image = np.uint8(utils.apply_gamma(utils.clipped(output_image),is_apply=False)*255)
+            input_image = Image.fromarray(np.uint8(utils.apply_gamma(input_image,is_apply=False)*255))
+            input_image.save("%s/%s/%d_%d/input_rgb.png"%(task,inference_folder,folderid,fileid))
+            input_image_naive = input_image.resize((int(input_image.width * up_ratio),
+                int(input_image.height * up_ratio)), Image.BILINEAR)
+            
+            image_set = []
+            image_set.append(np.array(input_image_naive))
+            image_set.append(output_image)
+            image_set_processed = utils.postprocess_output(image_set, is_align=True, is_color=True)
+            input_rgb_naive = image_set_processed[0]
+            output_rgb = image_set_processed[1]
+
+            Image.fromarray(input_rgb_naive).save("%s/%s/%d_%d/input_rgb_naive.png"%(task,inference_folder,folderid,fileid))
+            Image.fromarray(output_rgb).save("%s/%s/%d_%d/out_rgb.png"%(task,inference_folder,folderid,fileid))
 
 elif mode == 'inference_single':
     from sklearn.feature_extraction import image
     patch_sz = 0
     patch_stride = patch_sz-raw_tol*2
     
-    up_ratio_list = [3]
+    up_ratio_list = list(np.arange(10, 2, -0.5))
+    up_ratio_list = [10]
     for up_ratio in up_ratio_list:
         scale = 10.
         resize_ratio = up_ratio/scale
@@ -717,8 +719,8 @@ elif mode == 'inference_single':
         inference_folder = 'inference_single'
         if not os.path.isdir("%s/%s"%(task, inference_folder)):
             os.makedirs("%s/%s"%(task, inference_folder))
-        inference_path = "/export/vcl-nfs2/shared/xuanerzh/zoom/test/dslr_10x_both/00163/00007.ARW"
-        id = '163-%s'%(up_ratio)
+        inference_path = "/export/vcl-nfs2/shared/xuanerzh/zoom/test/dslr_10x_both/00090/00007.ARW"
+        id = '90-%s'%(up_ratio)
 
         if not os.path.isdir("%s/%s/%s"%(task, inference_folder, id)):
             os.makedirs("%s/%s/%s"%(task, inference_folder, id))
@@ -734,14 +736,12 @@ elif mode == 'inference_single':
         input_raw_rawpy = rawpy.imread(inference_path)
         input_rgb_rawpy = input_raw_rawpy.postprocess(no_auto_bright=True,use_camera_wb=False,output_bps=8)
         cropped_input_rgb_rawpy = utils.crop_fov(input_rgb_rawpy, 1./up_ratio)
-        # cropped_input_rgb_rawpy = utils.image_float(cropped_input_rgb_rawpy)
 
         rgb_camera_path = inference_path.replace(".ARW",".JPG")
         rgb_camera =  np.array(Image.open(rgb_camera_path))
         cropped_input_rgb = utils.crop_fov(rgb_camera, 1./up_ratio)
-        cropped_input_rgb = utils.image_float(cropped_input_rgb)
 
-        print("Testing on image : %s"%(inference_path), input_raw_img_orig.shape)
+        print("Inference on image : %s"%(inference_path), input_raw_img_orig.shape)
 
         if patch_sz > 0:
             row, col = input_raw_img_orig.shape[0:2]
@@ -777,27 +777,43 @@ elif mode == 'inference_single':
             img_recons = Image.fromarray(np.uint8(utils.apply_gamma(utils.clipped(img_recons),is_apply=False)*255))
             img_recons = img_recons.resize((int(img_recons.width * resize_ratio),
                 int(img_recons.height * resize_ratio)), Image.ANTIALIAS)
-            img_recons.save("%s/%s/%s/out_rgb.png"%(task,inference_folder,id), compress_level=1)
+            output_image = img_recons
         else:
             input_raw_img = np.expand_dims(input_raw_img_orig, 0)
             out_objDict=sess.run(objDict,feed_dict={input_raw:input_raw_img})
             out_objDict["out_rgb"][0,...,0] *= np.power(out_wb[0,0],1/2.2)
             out_objDict["out_rgb"][0,...,1] *= np.power(out_wb[0,1],1/2.2)
             out_objDict["out_rgb"][0,...,2] *= np.power(out_wb[0,3],1/2.2)
-            output_rgb = Image.fromarray(np.uint8(utils.apply_gamma(utils.clipped(out_objDict["out_rgb"][0,...]),is_apply=False)*255))
-            output_rgb = output_rgb.resize((int(output_rgb.width * resize_ratio),
-                int(output_rgb.height * resize_ratio)), Image.ANTIALIAS)
-            output_rgb.save("%s/%s/%s/out_rgb_%d-%d.png"%(task,inference_folder,id,0,0), 'PNG', compress_level=1)
+            output_image = Image.fromarray(np.uint8(utils.apply_gamma(utils.clipped(out_objDict["out_rgb"][0,...]),is_apply=False)*255))
+            output_image = output_image.resize((int(output_image.width * resize_ratio),
+                int(output_image.height * resize_ratio)), Image.ANTIALIAS)
 
-        input_camera_rgb = Image.fromarray(np.uint8(utils.clipped(cropped_input_rgb)*255))
-        input_rawpy_rgb = Image.fromarray(np.uint8(cropped_input_rgb_rawpy))
+        input_camera_rgb = Image.fromarray(np.uint8(utils.clipped(cropped_input_rgb[int(raw_tol/2*4):-int(raw_tol/2*4),
+            int(raw_tol/2*4):-int(raw_tol/2*4),:])))
         input_camera_rgb.save("%s/%s/%s/input_rgb_camera_orig.png"%(task,inference_folder,id), compress_level=1)
-        input_camera_rgb_naive = input_camera_rgb.resize((int(input_camera_rgb.width * up_ratio * resize_ratio),
-            int(input_camera_rgb.height * up_ratio * resize_ratio)), Image.ANTIALIAS)
-        input_rawpy_rgb = input_rawpy_rgb.resize((int(input_rawpy_rgb.width * up_ratio * resize_ratio),
-            int(input_rawpy_rgb.height * up_ratio * resize_ratio)), Image.ANTIALIAS)
-        input_camera_rgb_naive = input_camera_rgb_naive.resize((int(input_camera_rgb_naive.width * up_ratio * resize_ratio),
-            int(input_rawpy_rgb.input_camera_rgb_naive * up_ratio * resize_ratio)), Image.ANTIALIAS)
-        input_camera_rgb_naive.save("%s/%s/%s/input_rgb_camera_naive.png"%(task,inference_folder,id), compress_level=1)
-        input_rawpy_rgb.save("%s/%s/%s/input_rgb_rawpy_naive.png"%(task,inference_folder,id), compress_level=1)
+        input_camera_rgb_naive = input_camera_rgb.resize((int(input_camera_rgb.width * 4 * resize_ratio),
+            int(input_camera_rgb.height * 4 * resize_ratio)), Image.ANTIALIAS)
+
+        input_rawpy_rgb = Image.fromarray(np.uint8(cropped_input_rgb_rawpy))
+        input_rawpy_rgb = np.array(input_rawpy_rgb)[int(raw_tol/2*4):-int(raw_tol/2*4),
+            int(raw_tol/2*4):-int(raw_tol/2*4),:]
+        input_rawpy_rgb = Image.fromarray(input_rawpy_rgb)
+        input_rawpy_rgb = input_rawpy_rgb.resize((int(input_rawpy_rgb.width * 4 * resize_ratio),
+            int(input_rawpy_rgb.height * 4 * resize_ratio)), Image.ANTIALIAS)
         
+        (input_camera_rgb_naive).save("%s/%s/%s/input_rgb_camera_naive.png"%(task,inference_folder,id), compress_level=1)
+        (input_rawpy_rgb).save("%s/%s/%s/input_rgb_rawpy_naive.png"%(task,inference_folder,id), compress_level=1)
+        (output_image).save("%s/%s/%s/out_rgb_%d-%d.png"%(task,inference_folder,id,0,0), 'PNG', compress_level=1)
+
+        image_set = []
+        image_set.append(np.array(input_camera_rgb_naive))
+        image_set.append(np.array(output_image))
+        image_set.append(np.array(input_rawpy_rgb))
+        image_set_processed = utils.postprocess_output(image_set, is_align=True, is_color=True)
+        input_camera_rgb_naive = image_set_processed[0]
+        output_image = image_set_processed[1]
+        input_rawpy_rgb = image_set_processed[2]
+
+        Image.fromarray(input_camera_rgb_naive).save("%s/%s/%s/input_rgb_camera_naive.png"%(task,inference_folder,id), compress_level=1)
+        Image.fromarray(input_rawpy_rgb).save("%s/%s/%s/input_rgb_rawpy_naive.png"%(task,inference_folder,id), compress_level=1)
+        Image.fromarray(output_image).save("%s/%s/%s/out_rgb_%d-%d.png"%(task,inference_folder,id,0,0), 'PNG', compress_level=1)
