@@ -3,6 +3,8 @@ __pycache__
 *.pyc
 *.swp
 model/*.pyc
+.ipynb_
+.ipynb_checkpoints
 
 # OS generated files #
 ######################

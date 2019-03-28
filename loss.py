@@ -103,10 +103,8 @@ def compute_percep_loss(input, output, features, withl1=False, reuse=False):
     if withl1:
         loss_sum += compute_l1_loss(vgg_real['input'],vgg_fake['input'])
     if "conv1_2" in features:
-        # loss_sum += compute_l1_loss(vgg_real['conv1_2'],vgg_fake['conv1_2'])/2.6
         loss_sum += compute_l1_loss(vgg_real['conv1_2'],vgg_fake['conv1_2'])
     if "conv2_2" in features:
-        # loss_sum += compute_l1_loss(vgg_real['conv2_2'],vgg_fake['conv2_2'])/4.8
         loss_sum += compute_l1_loss(vgg_real['conv2_2'],vgg_fake['conv2_2'])
     if "conv3_2" in features:
         loss_sum += compute_l1_loss(vgg_real['conv3_2'],vgg_fake['conv3_2'])/3.7
@@ -119,9 +117,6 @@ def compute_percep_loss(input, output, features, withl1=False, reuse=False):
 def compute_l1_loss(input, output):
     loss=tf.reduce_mean(tf.abs(input-output), [1,2,3], keepdims=True)
     return loss
-
-def compute_l2_loss(input, output):
-    return tf.nn.l2_loss(tf.subtract(output, input))
 
 def compute_contextual_loss(input, output, reuse=False, w_spatial=0.1):
     CX = edict()
