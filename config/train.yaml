@@ -1,0 +1,30 @@
+name: train
+continue_training: True
+
+model:
+  loss_type: contextual
+  batch_size: 6
+  file_type: RAW
+  num_in_ch: 4
+  num_out_ch: 3
+  num_stacks: 2
+  num_blocks: 1
+  up_ratio: 4
+  stride: 2
+
+io:
+  save_root: /media/cecilia/EXT1/zoom
+  restore_ckpt: rgb_x4_cont_coord_5_patch2_w5_camera_wb
+  task_folder: restore_resnet
+  num_workers: 4
+  checkpoint_interval: 5
+  save_model_freq:
+  save_img_freq:
+  save_summary_freq:
+
+optim:
+  name: Adam
+  lr: 1.0e-4
+  weight_decay: 0
+  maxepoch: 20
+

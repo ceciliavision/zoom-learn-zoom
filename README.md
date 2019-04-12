@@ -1,4 +1,4 @@
-# Deepzoom
+# zoom-learn-zoom
 Code and data for CVPR 2019 paper [Zoom to Learn, Learn to Zoom]()
  and [Supplementary material]()
 
@@ -7,3 +7,14 @@ This paper shows that when applying machine learning to digital zoom for photogr
 ## ![](./teaser/teaser.png)
 
 Setup
+
+## Citation
+If you find this work useful for your research, please cite:
+
+```
+@inproceedings{
+}
+```
+
+## Contact
+Please contact me if there is any question (Cecilia Zhang <cecilia77@berkeley.edu>)

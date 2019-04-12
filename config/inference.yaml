@@ -1,0 +1,17 @@
+mode: inference # or 'inference_single' to inference on a single image
+
+model:
+  loss_type: contextual
+  batch_size: 6
+  file_type: RAW
+  num_in_channel: 4
+  num_out_channel: 3
+  up_ratio: 4
+
+io:
+  test_root: '/export/vcl-nfs2/shared/xuanerzh/zoom/test/dslr_10x_both/'
+  inference_path: '/export/vcl-nfs2/shared/xuanerzh/zoom/test/dslr_10x_both/00434/00007.ARW'
+  save_root: '/media/cecilia/EXT1/zoom'
+  substr: rgb_x4_cont_coord_5_patch2_w5_camera_wb
+  restore_ckpt: rgb_x4_cont_coord_5_patch2_w5_camera_wb
+  task_folder: restore_resnet

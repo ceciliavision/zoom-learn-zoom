@@ -12,7 +12,7 @@ import tifffile as tiff
 ######### Local Vars
 FOCAL_CODE = 37386
 ORIEN_CODE = 274
-white_lv = 16383 # 16383 for 14 bits, 4095 for 12 bits
+
 IMG_EXTENSIONS = [
     '.jpg', '.JPG', '.jpeg', '.JPEG', 'tiff',
     '.png', '.PNG', '.ppm', '.PPM', '.bmp', '.BMP',
@@ -48,10 +48,16 @@ def read_paths(path, type='RAW'):
     return paths
 
 # read in input dict of image pairs with 2X zoom
-def read_input_2x(path_raw, path_process, id_shift=4, is_training=True):
+def read_input_2x(path_raw, path_process, id_shift=4, mode="train"):
+    if id_shift == 3:
+        focal_thre = 4.5
+    elif id_shift == 5:
+        focal_thre = 8.5
+    elif id_shift == 3:
+        focal_thre = 2.5
     input_dict = {}
     fileid = int(os.path.basename(path_raw).split('.')[0])
-    if is_training:
+    if mode == "train":
         if fileid > (7-id_shift):
             return None
     else: # testing on _4
@@ -59,6 +65,7 @@ def read_input_2x(path_raw, path_process, id_shift=4, is_training=True):
             print("Please test with %d or %d"%(7-id_shift, 6-id_shift))
             return None
     path2_raw = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(fileid+id_shift))
+    src_path = path_process.replace(os.path.basename(path_process).split('.')[0].split('_')[0], "%05d"%(fileid+id_shift))
     path_raw_ref = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(1))
     try:
         ratio = 0
@@ -68,10 +75,12 @@ def read_input_2x(path_raw, path_process, id_shift=4, is_training=True):
         if focal2 is None or focal1 is None:
             return None
         ratio = focal1/focal2
-        if ratio > 4.5:
+        if ratio > focal_thre:
             path2_raw = path_raw.replace(os.path.basename(path_raw).split('.')[0], "%05d"%(fileid+id_shift-1))
+            src_path = path_process.replace(os.path.basename(path_process).split('.')[0].split('_')[0], "%05d"%(fileid+id_shift-1))
             try:
                 focal2 = readFocal_pil(path2_raw)
+                ratio = focal1/focal2
             except:
                 print('[x] high ratio ; cannot open %s or %s'%(path_raw, path2_raw))
                 return None
@@ -80,21 +89,21 @@ def read_input_2x(path_raw, path_process, id_shift=4, is_training=True):
         return None
     
     tform_txt = os.path.dirname(path_process)+'/tform.txt'
-    camera_txt = os.path.dirname(path_process.replace("dslr_10x_both","dslr_10x_both_process"))+'/rawpng/tform_camera.txt'
-    wb_txt = os.path.dirname(path_process)+'/wb.txt'
+    tform_rawpy_txt = tform_txt#os.path.dirname(path_process.replace("dslr_10x_both","dslr_10x_both_process"))+'/rawpng/tform.txt'
+    #camera_txt = os.path.dirname(path_raw.replace("dslr_10x_both","dslr_10x_both_process"))+'/rawpng/tform_camera_ref.txt'
+    wb_txt = os.path.dirname(path_raw)+'/wb.txt'
     if not os.path.isfile(tform_txt):
         print('[x] Cannot open %s'%(tform_txt))
+        return None
+    if not os.path.isfile(tform_rawpy_txt):
+        print('[x] Cannot open %s'%(tform_rawpy_txt))
         return None
     if not os.path.isfile(wb_txt):
         print('[x] Cannot open %s'%(wb_txt))
         return None
-    if not os.path.isfile(camera_txt):
-        print('[x] Cannot open %s'%(camera_txt))
-        return None
     
     ratio_ref1 = focal_ref/focal1
     ratio_ref2 = focal_ref/focal2
-    src_path = path_process.replace(os.path.basename(path_process).split('.')[0].split('_')[0], "%05d"%(fileid+2))
     
     print("Learn a zoom of %s from %s to %s"%(ratio, path2_raw, path_process))
     input_dict['src_path_raw'] = path2_raw
@@ -104,11 +113,13 @@ def read_input_2x(path_raw, path_process, id_shift=4, is_training=True):
     input_dict['ratio_ref1'] = ratio_ref1
     input_dict['ratio_ref2'] = ratio_ref2
     input_dict['ratio'] = ratio
-    input_dict['src_tform'] = read_tform(tform_txt, key=os.path.basename(path2_raw).split('.')[0])
-    input_dict['tar_tform'] = read_tform(tform_txt, key=os.path.basename(path_process).split('.')[0])
+    input_dict['src_tform'],input_dict['src_tform_corner'] = read_tform(tform_txt, key=os.path.basename(path2_raw).split('.')[0])
+    input_dict['tar_tform'],_ = read_tform(tform_txt, key=os.path.basename(path_process).split('.')[0])
+    input_dict['src_rawpy_tform'],input_dict['src_rawpy_tform_corner'] = read_tform(tform_rawpy_txt, key=os.path.basename(path2_raw).split('.')[0])
+    input_dict['tar_rawpy_tform'],_ = read_tform(tform_rawpy_txt, key=os.path.basename(path_process).split('.')[0])
     input_dict['src_wb'] = read_wb(wb_txt, key=os.path.basename(path2_raw).split('.')[0]+":")
     input_dict['tar_wb'] = read_wb(wb_txt, key=os.path.basename(path_process).split('.')[0]+":")
-    input_dict['camera_tform'] = read_tform(camera_txt, key='00002:')
+    #input_dict['camera_tform'],input_dict['camera_tform_corner'] = read_tform(camera_txt, key="00002:")
     return input_dict
     
 # 35mm equivalent focal length
@@ -130,6 +141,7 @@ def readOrien_pil(image_path):
 
 ### CHECK
 def read_tform(txtfile, key, model='ECC'):
+    corner = np.eye(4, dtype=np.float32)
     if model in ['ECC', 'RIGID']:
         tform = np.eye(2, 3, dtype=np.float32)
     else:
@@ -140,7 +152,10 @@ def read_tform(txtfile, key, model='ECC'):
                 for i in range(tform.shape[0]):
                     nextline = next(f)
                     tform[i,:] = nextline.split()
-    return tform
+            if 'corner' in l:
+                nextline = next(f)
+                corner = nextline.split()
+    return tform, corner
 
 ### CHECK
 def read_wb(txtfile, key):
@@ -158,30 +173,63 @@ def read_wb(txtfile, key):
     wb = wb.astype(np.float)
     return wb
 
+def compute_wb(raw_path):
+    print("Computing WB for %s"%(raw_path))
+    bayer = rawpy.imread(raw_path)
+    rgb_nowb = bayer.postprocess(gamma=(1, 1),
+        no_auto_bright=True,
+        use_camera_wb=False,
+        output_bps=16)
+
+    rgb_wb = bayer.postprocess(gamma=(1, 1),
+        no_auto_bright=True,
+        use_camera_wb=True,
+        output_bps=16)
+
+    scale=[np.mean(rgb_wb[...,0])/np.mean(rgb_nowb[...,0]), 
+        np.mean(rgb_wb[...,1])/np.mean(rgb_nowb[...,1]),
+        np.mean(rgb_wb[...,1])/np.mean(rgb_nowb[...,1]),
+        np.mean(rgb_wb[...,2])/np.mean(rgb_nowb[...,2])]
+    wb = np.zeros((1,4))
+    wb[0,0] = scale[0]
+    wb[0,1] = scale[1]
+    wb[0,2] = scale[2]
+    wb[0,3] = scale[3]
+    return wb
+
+def make_mosaic(im, mosaic_type='bayer'):
+    H, W=im.shape[:2]
+    mosaic=np.zeros((H, W))
+    mosaic[0:H:2, 0:W:2] = im[0:H:2, 0:W:2, 0]
+    mosaic[0:H:2, 1:W:2] = im[0:H:2, 1:W:2, 1]
+    mosaic[1:H:2, 0:W:2] = im[1:H:2, 0:W:2, 1]
+    mosaic[1:H:2, 1:W:2] = im[1:H:2, 1:W:2, 2]
+    return mosaic
+
+def add_noise(im):
+    sz = im.shape
+    noise_level = np.random.rand(1)
+    noise_level *= 0.0784
+    noise_level += 0.0000
+    noise = noise_level*np.random.randn(sz[0], sz[1])
+    im += noise
+    return im, noise_level
+
 ### CHECK
-def get_bayer(path):
+def get_bayer(path, black_lv, white_lv):
     try:
         raw = rawpy.imread(path)
     except:
         return None
     bayer = raw.raw_image_visible.astype(np.float32)
-    # bayer_shape = bayer.shape
-    # H = bayer_shape[0]
-    # W = bayer_shape[1]
-    # bayer[0:H:2,0:W:2] *= wb[0,0]
-    # bayer[0:H:2,1:W:2] *= wb[0,1]
-    # bayer[1:H:2,1:W:2] *= wb[0,3]
-    # bayer[1:H:2,0:W:2] *= wb[0,2]
-    bayer = (bayer - 512)/ (white_lv - 512) #subtract the black level
+    bayer = (bayer - black_lv)/ (white_lv - black_lv) #subtract the black level
     return bayer
 
 def reshape_raw(bayer):
-    # print(wb)
     bayer = np.expand_dims(bayer,axis=2) 
     bayer_shape = bayer.shape
     H = bayer_shape[0]
     W = bayer_shape[1]
-
     reshaped = np.concatenate((bayer[0:H:2,0:W:2,:], 
                        bayer[0:H:2,1:W:2,:],
                        bayer[1:H:2,1:W:2,:],
@@ -200,19 +248,25 @@ def reshape_back_raw(bayer):
     bayer_back[1:newH:2,0:newW:2] = bayer[...,3]
     return bayer_back
 
-def write_raw(source_raw, target_raw_path):
+def write_raw(source_raw, target_raw_path, device='sony'):
+    if device == "sony":
+        white_lv = 16383
+        black_lv = 512
+    elif device == 'iphone':
+        white_lv = 4367
+        black_lv = 528
     target_raw = rawpy.imread(target_raw_path)
     H, W = source_raw.shape[:2]
     for indi,i in enumerate(range(H)):
         for indj,j in enumerate(range(W)):
-            target_raw.raw_image_visible[indi, indj] = source_raw[i, j] * (white_lv - 512) + 512
+            target_raw.raw_image_visible[indi, indj] = source_raw[i, j] * (white_lv - black_lv) + black_lv
     rgb = target_raw.postprocess(no_auto_bright=True,
         use_camera_wb=False,
         output_bps=8)
     return rgb
 
 ### CHECK
-def prepare_input(input_dict, up_ratio=2., mode='train', is_pack=True):
+def prepare_input(input_dict, up_ratio=2., mode='train', device='sony', is_pack=True):
     out_dict = {}
     ratio = input_dict['ratio']
     ratio_offset = up_ratio/ratio ####### HHH #######
@@ -220,33 +274,63 @@ def prepare_input(input_dict, up_ratio=2., mode='train', is_pack=True):
     scale_offset = get_scale_matrix(ratio_offset)
     scale_ref = get_scale_matrix(input_dict['ratio_ref1'])
     scale_inv_ref = get_scale_matrix(1./input_dict['ratio_ref1'])
-    inv_src_tform = cv2.invertAffineTransform(input_dict['src_tform'])
     combined_tform = concat_tform([scale_ref,
+        np.append(cv2.invertAffineTransform(input_dict['src_tform']),[[0,0,1]],0),
         np.append(input_dict['tar_tform'],[[0,0,1]],0),
-        np.append(inv_src_tform,[[0,0,1]],0),
         scale_inv_ref,
         scale_inv_offset])
-    camera_tform = concat_tform([scale_offset,
-        scale_ref,
-        np.append(input_dict['camera_tform'], [[0,0,1]],0),
-        scale_inv_ref,
-        scale_inv_offset])
-    inv_tar_tform = cv2.invertAffineTransform(input_dict['tar_tform'])
-    combined_tform_src = concat_tform([get_scale_matrix(input_dict['ratio_ref2']),
-        np.append(inv_tar_tform,[[0,0,1]],0),
-        get_scale_matrix(1./input_dict['ratio_ref2']),
-        scale_inv_ref])
+    # combined_tform = concat_tform([scale_inv_offset,
+    #                                  scale_ref,
+    #                                  np.append((input_dict['src_rawpy_tform']),[[0,0,1]],0),
+    #                                  np.append((input_dict['camera_tform']),[[0,0,1]],0),
+    #                                  np.append(cv2.invertAffineTransform(input_dict['tar_tform']),[[0,0,1]],0),
+    #                                  scale_inv_ref])
+    combined_tform_test = concat_tform([np.append(input_dict['tar_tform'],[[0,0,1]],0),
+        np.append(cv2.invertAffineTransform(input_dict['src_tform']),[[0,0,1]],0)])
+    # combined_tform_src = concat_tform([np.append(input_dict['src_tform'],[[0,0,1]],0)])
+    #combined_tform_src = concat_tform([get_scale_matrix(input_dict['ratio_ref2']),
+    #    np.append(cv2.invertAffineTransform(input_dict['src_tform']),[[0,0,1]],0),
+    #    np.append(input_dict['src_tform'],[[0,0,1]],0),
+    #    get_scale_matrix(1./input_dict['ratio_ref2']),
+    #    np.append(cv2.invertAffineTransform(input_dict['camera_tform']),[[0,0,1]],0),
+    #    scale_inv_ref])
 
     # concat_tform = np.matmul(np.append(input_dict['tar_tform'],[[0,0,1]],0),
     #     np.append(scale_offset,[[0,0,1]],0))
     # concat_tform = np.matmul(np.append(inv_src_tform,[[0,0,1]],0), concat_tform)
     # print("concat_tform",combined_tform)
 
-    input_raw = get_bayer(input_dict['src_path_raw'])
-    if input_raw is None:
-        with open('./logerror.txt'%(task), 'a') as floss:
-            floss.write('error reading raw of: %s\n'%(input_dict['src_path_raw']))
-        return None
+    if device == "sony":
+        input_raw = get_bayer(input_dict['src_path_raw'], black_lv = 512, white_lv = 16383)
+        print("input raw range: ", input_raw.min(), input_raw.max())
+        if input_raw is None:
+            with open('./logerror.txt'%(task), 'a') as floss:
+                floss.write('error reading raw of: %s\n'%(input_dict['src_path_raw']))
+            return None
+    elif device == "iphone":
+        input_raw = get_bayer(input_dict['src_path_raw'], black_lv = 528, white_lv = 4367)
+        print("input raw range: ", input_raw.min(), input_raw.max())
+        if input_raw is None:
+            with open('./logerror.txt'%(task), 'a') as floss:
+                floss.write('error reading raw of: %s\n'%(input_dict['src_path_raw']))
+            return None
+    elif device == "synthetic":
+        input_image = Image.open(input_dict['src_path_raw'])
+        input_image = apply_gamma(np.array(input_image), gamma=1/2.22)
+        input_raw = make_mosaic(input_image)
+    elif device == "synthetic_clean":
+        input_image = Image.open(input_dict['src_path_raw'])
+        input_image = apply_gamma(np.array(input_image), gamma=1/2.22)
+        input_raw_clean = make_mosaic(input_image)
+        input_raw, noise_level = add_noise(input_raw_clean)
+        out_dict['noise_level'] = noise_level
+    
+    isrotate = 0
+    if 'tif' not in input_dict['src_path']:
+        isrotate = readOrien_pil(input_dict['src_path']) == 3
+    if isrotate:
+        input_raw_reshape = np.rot90(input_raw_reshape, 2)
+
     input_raw_reshape = reshape_raw(input_raw)
     cropped_raw = crop_fov(input_raw_reshape, 1./input_dict['ratio_ref2'])
     out_dict['input_raw'] = cropped_raw
@@ -256,45 +340,32 @@ def prepare_input(input_dict, up_ratio=2., mode='train', is_pack=True):
                 os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.tif'))
         else:
             input_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+
-                os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.JPG'))
+                os.path.basename(input_dict['src_path_raw'].split('.')[0])+'.'+os.path.basename(input_dict['tar_path'].split('.')[1]))
     except Exception as exception:
         print("Failed to open %s"%(os.path.dirname(input_dict['tar_path'])+'/'+
-            os.path.basename(input_dict['src_path_raw'].split('.')[0]+'.JPG')))
+            os.path.basename(input_dict['src_path_raw'].split('.')[0])+'.'+os.path.basename(input_dict['tar_path'].split('.')[1])))
         return None
     input_rgb = np.array(input_rgb)
-    if is_pack:
-        input_raw_reshape = reshape_raw(input_raw)
-    else:
-        input_raw_reshape = input_raw
         
     cropped_input_rgb = crop_fov(input_rgb, 1./input_dict['ratio_ref2'])
     cropped_input_rgb = image_float(cropped_input_rgb)
     out_dict['input_rgb'] = cropped_input_rgb
     out_dict['tform'] = combined_tform[0:2,...]
-    out_dict['tform_src'] = combined_tform_src[0:2,...]
-    out_dict['camera_tform']  = camera_tform[0:2,...]
+    out_dict['tform_tar'] = combined_tform_test[0:2,...]
+    #out_dict['tform_src'] = combined_tform_src[0:2,...]
+    # out_dict['camera_tform']  = camera_tform[0:2,...]
     if mode=='inference':
         return out_dict
-
-    tar_raw = get_bayer(input_dict['tar_path_raw'])
-    if is_pack:
-        tar_raw_reshape = reshape_raw(tar_raw)
-    else:
-        tar_raw_reshape = tar_raw
+    
     try:
-        if '.tif' in input_dict['src_path']:
-            tar_rgb = tiff.imread(os.path.dirname(input_dict['tar_path'])+'/'+
-                os.path.basename(input_dict['tar_path'].split('.')[0]+'.tif'))
-        else:
-            tar_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+
-                os.path.basename(input_dict['tar_path'].split('.')[0]+'.JPG'))
+        tar_rgb = Image.open(os.path.dirname(input_dict['tar_path'])+'/'+
+            os.path.basename(input_dict['tar_path'].split('.')[0])+'.'+os.path.basename(input_dict['tar_path'].split('.')[1]))
     except Exception as exception:
-        print("Failed to open %s"%os.path.dirname(input_dict['tar_path'])+'/'+
-            os.path.basename(input_dict['tar_path'].split('.')[0]+'.JPG'))
+        print("Failed to open %s"%(os.path.dirname(input_dict['tar_path'])+'/'+
+            os.path.basename(input_dict['tar_path'].split('.')[0])+'.'+os.path.basename(input_dict['tar_path'].split('.')[1])))
         return None
     tar_rgb = np.array(tar_rgb)
     cropped_rgb = crop_fov(tar_rgb, 1./input_dict['ratio_ref1'])
-    tar_raw_reshape = reshape_raw(tar_raw)
     cropped_rgb = image_float(cropped_rgb)
     out_dict['ratio_offset'] = ratio_offset
     out_dict['tar_rgb'] = cropped_rgb
@@ -459,6 +530,19 @@ def crop_fov(image, ratio):
     return cropped
 
 ### CHECK
+def crop_fov_free(image, ratio, crop_fracx=1./2, crop_fracy=1./2):
+    width, height = image.shape[:2]
+    new_width = width * ratio
+    new_height = height * ratio
+    left = np.ceil((width - new_width) * crop_fracx)
+    top = np.ceil((height - new_height) * crop_fracy)
+    # right = np.floor((width + new_width) * crop_frac)
+    # bottom = np.floor((height + new_height) * crop_frac)
+    # print("Cropping boundary: ", top, bottom, left, right)
+    cropped = image[int(left):int(left+new_width), int(top):int(top+new_height), ...]
+    return cropped
+
+### CHECK
 def post_process_rgb(target_rgb, out_size, tform):
     target_rgb_warp = cv2.warpAffine(target_rgb, tform, (out_size[0], out_size[1]),
         flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
@@ -466,6 +550,13 @@ def post_process_rgb(target_rgb, out_size, tform):
     target_rgb_process = target_rgb_warp[transformed_corner['minw']:transformed_corner['maxw'],
         transformed_corner['minh']:transformed_corner['maxh'],:]
     return target_rgb_process, transformed_corner
+
+### CHECK
+def post_process_rgb_v2(target_rgb, out_size, tform):
+    target_rgb_warp = cv2.warpAffine(target_rgb, tform, (out_size[0], out_size[1]),
+        flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+    transformed_corner = get_transformed_corner(tform, out_size[0], out_size[1])
+    return target_rgb_warp, transformed_corner
 
 ### CHECK
 # image_set: a list of images
@@ -497,13 +588,22 @@ def image_uint8(image):
     image = (image * 255).astype(np.uint8)
     return image
 
+### CHECK
+# use PIL image resize
+def resize_pil(image, ratio):
+    image = Image.fromarray(image)
+    image = image.resize((int(image.width*ratio),
+                             int(image.height*ratio)),
+                             Image.ANTIALIAS)
+    return np.array(image)
+
 def clipped(image):
     if image.max() <= 10:
         return np.minimum(np.maximum(image,0.0),1.0)
     else:
         return np.minimum(np.maximum(image,0.0),255.0)
 
-def postprocess_output(image_set, is_align=False, is_color=False):
+def postprocess_output(image_set, is_align=False, is_color=False, is_mask=False):
     image_set_processed = image_set
     if is_align:
         print("Running alignment")
@@ -539,14 +639,23 @@ def postprocess_output(image_set, is_align=False, is_color=False):
             image_set_processed.append(images_set_t[i][min_h:max_h,min_w:max_w,:])
     if is_color:
         print("Color matching")
+        from skimage import color
         image_ref_processed = image_set_processed[0]
         image_set_tmp = []
         image_set_tmp.append(image_ref_processed)
         for i in range(1,len(image_set)):
             image_out_processed = image_set_processed[i]
-            image_tmp = np.zeros_like(image_out_processed)
-            for c in range(image_ref_processed.shape[2]):
-                image_tmp[:, :, c] = hist_match(image_out_processed[:, :, c], image_ref_processed[:, :, c])
+            print("Matching image ",i, image_out_processed.shape)
+            image_out_processed_lab = color.rgb2lab(image_out_processed)
+            image_ref_processed_lab = color.rgb2lab(image_ref_processed)
+            image_tmp = image_out_processed_lab
+            for c in range(0,image_ref_processed.shape[2]):
+                image_tmp[:, :, c] = hist_match(image_out_processed_lab[:, :, c], image_ref_processed_lab[:, :, c])
+            image_tmp = color.lab2rgb(image_tmp)
+            if is_mask:
+                mask_sat = np.array(np.any(image_out_processed>254,2))
+                mask_sat = np.dstack((mask_sat,mask_sat,mask_sat))
+                image_tmp = image_tmp*(1-mask_sat) + image_out_processed*mask_sat
             image_set_tmp.append(image_tmp)
         image_set_processed = image_set_tmp
     return image_set_processed
@@ -803,7 +912,6 @@ def apply_gamma(image, gamma=2.22,is_apply=True):
         print("Negative values in images, zero out")
         image[image < 0] = 0.
     image_copy = image
-    # image_copy[image < 0.0031308] *= 4.5
     image_copy = image_copy ** (1./gamma)
     return image_copy
 
