@@ -1,5 +1,4 @@
 import yaml
-from docopt import docopt
 import os,time,random, rawpy
 import tensorflow as tf
 import numpy as np
