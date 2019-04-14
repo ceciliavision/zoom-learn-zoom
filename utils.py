@@ -22,10 +22,9 @@ RAW_EXTENSIONS = [
 ]
 lower, upper = 0., 1.
 mu, sigma = 0.5, 0.2
+# generate random numbers for random crop
 rand_gen = stats.truncnorm(
     (lower - mu) / sigma, (upper - mu) / sigma, loc=mu, scale=sigma)
-
-crop_sz = 512
 
 ######### Util functions
 def is_image_file(filename):
@@ -33,6 +32,69 @@ def is_image_file(filename):
 
 def is_raw_file(filename):
     return any(filename.endswith(extension) for extension in RAW_EXTENSIONS)
+
+def read_wb_lv(device):
+    if device == "sony":
+        white_lv = 16383
+        black_lv = 512
+    elif device == "iphone":
+        white_lv = 4367
+        black_lv = 528
+    else:
+        print("Unknow device, please change or add your own.")
+        exit()
+    return white_lv, black_lv
+
+# 35mm equivalent focal length
+def readFocal_pil(image_path):
+    if 'ARW' in image_path:
+        image_path = image_path.replace('ARW','JPG')
+    try:
+        img = Image.open(image_path)
+    except:
+        return None
+    exif_data = img._getexif()
+    return exif_data[FOCAL_CODE][0]/exif_data[FOCAL_CODE][1]
+
+### CHECK
+def readOrien_pil(image_path):
+    img = Image.open(image_path)
+    exif_data = img._getexif()
+    return exif_data[ORIEN_CODE]
+
+### CHECK
+def read_tform(txtfile, key, model='ECC'):
+    corner = np.eye(4, dtype=np.float32)
+    if model in ['ECC', 'RIGID']:
+        tform = np.eye(2, 3, dtype=np.float32)
+    else:
+        tform = np.eye(3, 3, dtype=np.float32)
+    with open(txtfile) as f:
+        for l in f:
+            if "00001-"+key in l:
+                for i in range(tform.shape[0]):
+                    nextline = next(f)
+                    tform[i,:] = nextline.split()
+            if 'corner' in l:
+                nextline = next(f)
+                corner = nextline.split()
+    return tform, corner
+
+### CHECK
+def read_wb(txtfile, key):
+    wb = np.zeros((1,4))
+    with open(txtfile) as f:
+        for l in f:
+            if key in l:
+                for i in range(wb.shape[0]):
+                    nextline = next(f)
+                    try:
+                        wb[i,:] = nextline.split()
+                    except:
+                        print("WB error XXXXXXX")
+                        print(txtfile)
+    wb = wb.astype(np.float)
+    return wb
 
 def read_paths(path, type='RAW'):
     paths=[]
@@ -121,58 +183,8 @@ def read_input_2x(path_raw, path_process, id_shift=4, mode="train"):
     input_dict['tar_wb'] = read_wb(wb_txt, key=os.path.basename(path_process).split('.')[0]+":")
     #input_dict['camera_tform'],input_dict['camera_tform_corner'] = read_tform(camera_txt, key="00002:")
     return input_dict
-    
-# 35mm equivalent focal length
-def readFocal_pil(image_path):
-    if 'ARW' in image_path:
-        image_path = image_path.replace('ARW','JPG')
-    try:
-        img = Image.open(image_path)
-    except:
-        return None
-    exif_data = img._getexif()
-    return exif_data[FOCAL_CODE][0]/exif_data[FOCAL_CODE][1]
 
 ### CHECK
-def readOrien_pil(image_path):
-    img = Image.open(image_path)
-    exif_data = img._getexif()
-    return exif_data[ORIEN_CODE]
-
-### CHECK
-def read_tform(txtfile, key, model='ECC'):
-    corner = np.eye(4, dtype=np.float32)
-    if model in ['ECC', 'RIGID']:
-        tform = np.eye(2, 3, dtype=np.float32)
-    else:
-        tform = np.eye(3, 3, dtype=np.float32)
-    with open(txtfile) as f:
-        for l in f:
-            if "00001-"+key in l:
-                for i in range(tform.shape[0]):
-                    nextline = next(f)
-                    tform[i,:] = nextline.split()
-            if 'corner' in l:
-                nextline = next(f)
-                corner = nextline.split()
-    return tform, corner
-
-### CHECK
-def read_wb(txtfile, key):
-    wb = np.zeros((1,4))
-    with open(txtfile) as f:
-        for l in f:
-            if key in l:
-                for i in range(wb.shape[0]):
-                    nextline = next(f)
-                    try:
-                        wb[i,:] = nextline.split()
-                    except:
-                        print("WB error XXXXXXX")
-                        print(txtfile)
-    wb = wb.astype(np.float)
-    return wb
-
 def compute_wb(raw_path):
     print("Computing WB for %s"%(raw_path))
     bayer = rawpy.imread(raw_path)
@@ -249,12 +261,7 @@ def reshape_back_raw(bayer):
     return bayer_back
 
 def write_raw(source_raw, target_raw_path, device='sony'):
-    if device == "sony":
-        white_lv = 16383
-        black_lv = 512
-    elif device == 'iphone':
-        white_lv = 4367
-        black_lv = 528
+    white_lv, black_lv = read_wb_lv(device)
     target_raw = rawpy.imread(target_raw_path)
     H, W = source_raw.shape[:2]
     for indi,i in enumerate(range(H)):
@@ -744,162 +751,6 @@ def apply_transform(image_set, tform_set, tform_inv_set, t_type, scale=1.):
 def apply_transform_single(image, tform, c, r):
     return cv2.warpAffine(image, tform, (c, r),
         flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
-
-### CHECK 
-# images don't need to have same size
-def sum_aligned_image(image_aligned, image_set):
-    sum_img = np.float32(image_set[0]) * 1. / len(image_aligned)
-    sum_img_t = np.float32(image_aligned[0]) * 1. / len(image_aligned)
-    identity_transform = np.eye(2, 3, dtype=np.float32)
-    r, c = image_set[0].shape[0:2]
-    for i in range(1, len(image_aligned)):
-        sum_img_t += np.float32(image_aligned[i]) * 1. / len(image_aligned)
-        image_set_i = cv2.warpAffine(image_set[i], identity_transform, (c, r),
-            flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
-        sum_img += np.float32(image_set_i) * 1. / len(image_aligned)
-    return sum_img_t, sum_img
-
-### CHECK
-def align_rigid(image_set, images_gray_set, ref_ind, thre=0.05):
-    img_num = len(image_set)
-    ref_gray_image = images_gray_set[ref_ind]
-    r, c = image_set[0].shape[0:2]
-
-    identity_transform = np.eye(2, 3, dtype=np.float32)
-    warp_matrix = np.eye(2, 3, dtype=np.float32)
-    tform_set_init = [np.eye(2, 3, dtype=np.float32)] * img_num
-
-    tform_set = np.zeros_like(tform_set_init)
-    tform_inv_set = np.zeros_like(tform_set_init)
-    valid_id = []
-    motion_thre = thre * min(r, c)
-    for i in range(ref_ind - 1, -1, -1):
-        warp_matrix = cv2.estimateRigidTransform(image_uint8(ref_gray_image), 
-            image_uint8(images_gray_set[i]), fullAffine=0)
-        # print("warp_matrix: ", warp_matrix)
-        if warp_matrix is None:
-            continue
-        tform_set[i] = warp_matrix
-        tform_inv_set[i] = cv2.invertAffineTransform(warp_matrix)
-
-        motion_val = abs(warp_matrix - identity_transform).sum()
-        if motion_val < motion_thre:
-            valid_id.append(i)
-        else:
-            continue
-
-    warp_matrix = np.eye(2, 3, dtype=np.float32)
-    for i in range(ref_ind, img_num, 1):
-        warp_matrix = cv2.estimateRigidTransform(image_uint8(ref_gray_image), 
-            image_uint8(images_gray_set[i]), fullAffine=0)
-        if warp_matrix is None:
-            tform_set[i] = identity_transform
-            tform_inv_set[i] = identity_transform
-            continue
-        tform_set[i] = warp_matrix
-        tform_inv_set[i] = cv2.invertAffineTransform(warp_matrix)
-        motion_val = abs(warp_matrix - identity_transform).sum()
-        if motion_val < motion_thre:
-            valid_id.append(i)
-        else:
-            continue
-    return tform_set, tform_inv_set, valid_id
-
-### CHECK
-def align_ecc(image_set, images_gray_set, ref_ind, thre=0.05):
-    img_num = len(image_set)
-    # select the image as reference
-    # ref_image = image_set[ref_ind]
-    ref_gray_image = images_gray_set[ref_ind]
-    r, c = image_set[0].shape[0:2]
-
-    warp_mode = cv2.MOTION_AFFINE
-    # cv2.MOTION_HOMOGRAPHY # cv2.MOTION_AFFINE # cv2.MOTION_TRANSLATION # cv2.MOTION_EUCLIDEAN
-
-    # Define 2x3 or 3x3 matrices and initialize the matrix to identity
-    if  warp_mode == cv2.MOTION_HOMOGRAPHY:
-        print("Using homography model for alignment")
-        identity_transform = np.eye(3, 3, dtype=np.float32)
-        warp_matrix = np.eye(3, 3, dtype=np.float32)
-        tform_set_init = [np.eye(3, 3, dtype=np.float32)] * img_num
-    else:
-        identity_transform = np.eye(2, 3, dtype=np.float32)
-        warp_matrix = np.eye(2, 3, dtype=np.float32)
-        tform_set_init = [np.eye(2, 3, dtype=np.float32)] * img_num
-
-    number_of_iterations = 500
-    termination_eps = 1e-6
-    criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, number_of_iterations, termination_eps)
-
-    # Run the ECC algorithm. The results are stored in warp_matrix.
-    tform_set = np.zeros_like(tform_set_init)
-    tform_inv_set = np.zeros_like(tform_set_init)
-    valid_id = []
-    motion_thre = thre * min(r, c)
-    for i in range(ref_ind - 1, -1, -1):
-        _, warp_matrix = cv2.findTransformECC(ref_gray_image, images_gray_set[i], warp_matrix, warp_mode, criteria)
-        tform_set[i] = warp_matrix
-        tform_inv_set[i] = cv2.invertAffineTransform(warp_matrix)
-
-        motion_val = abs(warp_matrix - identity_transform).sum()
-        if motion_val < motion_thre:
-            valid_id.append(i)
-        else:
-            continue
-
-    if  warp_mode == cv2.MOTION_HOMOGRAPHY:
-        warp_matrix = np.eye(3, 3, dtype=np.float32)
-    else:
-        warp_matrix = np.eye(2, 3, dtype=np.float32)
-
-    for i in range(ref_ind, img_num, 1):
-        _, warp_matrix = cv2.findTransformECC(ref_gray_image, images_gray_set[i], warp_matrix, warp_mode, criteria)
-        tform_set[i] = warp_matrix
-        tform_inv_set[i] = cv2.invertAffineTransform(warp_matrix)
-
-        motion_val = abs(warp_matrix - identity_transform).sum()
-        if motion_val < motion_thre:
-            valid_id.append(i)
-        else:
-            continue
-    return tform_set, tform_inv_set, valid_id
-
-### CHECK
-def get_transformed_corner(tform, h, w):
-    corner = np.array([[0,0,w,w],[0,h,0,h],[1,1,1,1]])
-    inv_tform = cv2.invertAffineTransform(tform)
-    corner_t = np.matmul(np.vstack([np.array(inv_tform),[0,0,1]]),corner)
-    min_w = np.max(corner_t[0,[0,1]])
-    min_w = int(np.max(np.ceil(min_w),0))
-    min_h = np.max(corner_t[1,[0,2]])
-    min_h = int(np.max(np.ceil(min_h),0))
-    max_w = np.min(corner_t[0,[2,3]])
-    max_w = int(np.floor(max_w))
-    max_h = np.min(corner_t[1,[1,3]])
-    max_h = int(np.floor(max_h))
-    tformed = {}
-    tformed['minw'] = max(0,min_w)
-    tformed['maxw'] = min(w,max_w)
-    tformed['minh'] = max(0,min_h)
-    tformed['maxh'] = min(h,max_h)
-    return tformed
-
-### CHECK
-def unaligned_loss(prediction, target, tar_w, tar_h, tol, stride=1):
-    min_error = 1000000
-    shifted_loss = np.zeros((int(tol*2/stride), int(tol*2/stride)))
-    for idi,i in enumerate(range(0,(tol*2),stride)):
-        for idj,j in enumerate(range(0,(tol*2),stride)):
-            canvas = np.zeros((tar_w, tar_h, prediction.shape[-1]))
-            canvas[i:i+prediction.shape[0],j:j+prediction.shape[1],:] = prediction
-            shifted_loss[idi,idj] = (abs((target-canvas)[i:i+prediction.shape[0],j:j+prediction.shape[1],:])).mean()
-            print(i,j,shifted_loss[idi,idj])
-            if shifted_loss[idi,idj] < min_error:
-                image_min = canvas
-                min_error = shifted_loss[idi,idj]
-    loss = shifted_loss.min()
-    mini, minj = np.unravel_index(shifted_loss.argmin(), shifted_loss.shape)
-    return image_min, loss, mini*stride, minj*stride
 
 ### CHECK
 def apply_gamma(image, gamma=2.22,is_apply=True):

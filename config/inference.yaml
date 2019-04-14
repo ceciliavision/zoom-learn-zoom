@@ -10,7 +10,7 @@ model:
   upsample_type: 'deconv'
 
 io:
-  test_root: '/media/cecilia/EXT1/zoom/dslr_10x_both/'
+  inference_root: '/media/cecilia/EXT1/zoom/dslr_10x_both/'
   inference_path: '/media/cecilia/EXT1/zoom/dslr_10x_test/dslr_10x_both/00134/00005.ARW'
   save_root: '/media/cecilia/EXT1/zoom'
   restore_ckpt: '/media/cecilia/EXT1/zoom/experiments/core/rgb_x4_cont_coord_5_patch2_w5_camera_wb_cont'

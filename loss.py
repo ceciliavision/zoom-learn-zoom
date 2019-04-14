@@ -22,41 +22,6 @@ def learn_align(prediction, target, tar_w, tar_h):
     loss = tf.reduce_mean(tf.abs(cropped_image - prediction))
     return loss, cropped_image
 
-def compute_unalign_loss(prediction, target, tol, stride=1, losstype='l1'):
-    if tol == 0:
-        loss = tf.reduce_mean(tf.abs(target - prediction))
-        return loss, target
-    num_tiles = int(tol*2/stride) * int(tol*2/stride)
-    multiples = tf.constant([num_tiles, 1, 1, 1])
-    prediction_tiles = tf.tile(prediction, multiples, name='pred_tile')
-    target_tiles = tf.tile(target, multiples, name='tar_tile')
-    translations = [[-i,-j] for i in range(0,(tol*2),stride) for j in range(0,(tol*2),stride)]
-    target_tiles_translate = tf.contrib.image.translate(target_tiles,
-        translations,
-        interpolation='BILINEAR')
-    target_tiles_cropped = tf.slice(target_tiles_translate, [0, 0, 0, 0], [num_tiles,
-        tf.shape(prediction_tiles)[1], 
-        tf.shape(prediction_tiles)[2],
-        tf.shape(prediction_tiles)[3]])
-    diff_tiles = tf.reduce_mean(tf.abs(target_tiles_cropped - prediction_tiles), [1, 2, 3], keepdims=True)
-    argmin = tf.argmin(diff_tiles, axis=0)
-    argminij = tf.unravel_index(tf.squeeze(argmin), (tol, tol))
-    argminij = tf.reshape(tf.cast(argminij, dtype=tf.float32)*stride, (1,2))
-    target_translate = tf.contrib.image.translate(target,
-        -argminij,
-        interpolation='BILINEAR')
-    target_cropped = tf.slice(target_translate, [0, 0, 0, 0], [1,
-        tf.shape(prediction)[1],
-        tf.shape(prediction)[2], 
-        tf.shape(prediction)[3]])
-    if losstype == 'percep':
-        features = ["conv1_2", "conv2_2", "conv3_2"]
-        diff_percep = compute_percep_loss(target_cropped, prediction, features, withl1=False)
-        diff_tiles = tf.reduce_mean(diff_percep, [1, 2, 3], keepdims=True)
-    loss = tf.reduce_min(diff_tiles)
-    # print("argmin: ", diff_tiles, argmin)
-    return loss, target_cropped
-
 def build_net(ntype,nin,nwb=None,name=None):
     if ntype=='conv':
         return tf.nn.relu(tf.nn.conv2d(nin,nwb[0],strides=[1,1,1,1],padding='SAME',name=name)+nwb[1])
@@ -131,15 +96,13 @@ def compute_contextual_loss(input, output, reuse=False, w_spatial=0.1):
 
     vgg_real=build_vgg19(input*255.0, features, reuse=reuse)
     vgg_fake=build_vgg19(output*255.0, features, reuse=True)
-    CX_loss_argmax = []
     CX_loss_list = []
     for layer, w in CX.feat_layers.items():
-        CX_loss_i, CX_loss_arg_i = CX_loss_helper(vgg_real[layer], vgg_fake[layer], CX)
+        CX_loss_i = CX_loss_helper(vgg_real[layer], vgg_fake[layer], CX)
         CX_loss_list.append(w * CX_loss_i)
-        CX_loss_argmax.append(CX_loss_arg_i)
     
     CX_loss = tf.reduce_sum(CX_loss_list)
-    return CX_loss,CX_loss_argmax
+    return CX_loss
 
 def compute_patch_contextual_loss(input, output, reuse=False, patch_sz=5, rates=1, w_spatial=0.1):
     CX = edict()
@@ -158,10 +121,10 @@ def compute_patch_contextual_loss(input, output, reuse=False, patch_sz=5, rates=
         strides=[1,1,1,1],
         rates=[1,rates,rates,1],
         padding="SAME")
-    CX_loss_i, CX_loss_arg_i = CX_loss_helper(input_patch, output_patch, CX_config=CX)
+    CX_loss_i = CX_loss_helper(input_patch, output_patch, CX_config=CX)
     
     CX_loss = tf.reduce_sum(CX_loss_i)
-    return CX_loss,CX_loss_arg_i
+    return CX_loss
 
 def normalize_patch(input, dim=3):
     mean, var = tf.nn.moments(input, [dim], keep_dims=True)
@@ -186,3 +149,38 @@ def compute_charbonnier_loss(input, epsilon=0.001, alpha=0.45, img=None, is_edge
     else:
         return tf.reduce_mean(tf.pow(tf.square(gradx1)+tf.square(epsilon), alpha))/2+\
             tf.reduce_mean(tf.pow(tf.square(grady1)+tf.square(epsilon), alpha))/2
+
+# Not used for training
+def compute_unalign_loss(prediction, target, tol, stride=1, losstype='l1'):
+    if tol == 0:
+        loss = tf.reduce_mean(tf.abs(target - prediction))
+        return loss, target
+    num_tiles = int(tol*2/stride) * int(tol*2/stride)
+    multiples = tf.constant([num_tiles, 1, 1, 1])
+    prediction_tiles = tf.tile(prediction, multiples, name='pred_tile')
+    target_tiles = tf.tile(target, multiples, name='tar_tile')
+    translations = [[-i,-j] for i in range(0,(tol*2),stride) for j in range(0,(tol*2),stride)]
+    target_tiles_translate = tf.contrib.image.translate(target_tiles,
+        translations,
+        interpolation='BILINEAR')
+    target_tiles_cropped = tf.slice(target_tiles_translate, [0, 0, 0, 0], [num_tiles,
+        tf.shape(prediction_tiles)[1], 
+        tf.shape(prediction_tiles)[2],
+        tf.shape(prediction_tiles)[3]])
+    diff_tiles = tf.reduce_mean(tf.abs(target_tiles_cropped - prediction_tiles), [1, 2, 3], keepdims=True)
+    argmin = tf.argmin(diff_tiles, axis=0)
+    argminij = tf.unravel_index(tf.squeeze(argmin), (tol, tol))
+    argminij = tf.reshape(tf.cast(argminij, dtype=tf.float32)*stride, (1,2))
+    target_translate = tf.contrib.image.translate(target,
+        -argminij,
+        interpolation='BILINEAR')
+    target_cropped = tf.slice(target_translate, [0, 0, 0, 0], [1,
+        tf.shape(prediction)[1],
+        tf.shape(prediction)[2], 
+        tf.shape(prediction)[3]])
+    if losstype == 'percep':
+        features = ["conv1_2", "conv2_2", "conv3_2"]
+        diff_percep = compute_percep_loss(target_cropped, prediction, features, withl1=False)
+        diff_tiles = tf.reduce_mean(diff_percep, [1, 2, 3], keepdims=True)
+    loss = tf.reduce_min(diff_tiles)
+    return loss, target_cropped

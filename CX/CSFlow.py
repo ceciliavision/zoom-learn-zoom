@@ -100,7 +100,6 @@ class CSFlow:
     def calc_relative_distances(self, axis=TensorAxis.C):
         epsilon = 1e-3
         div = tf.reduce_min(self.raw_distances, axis=axis, keepdims=True)
-        # div = tf.reduce_mean(self.raw_distances, axis=axis, keepdims=True)
         relative_dist = self.raw_distances / (div + epsilon)
         return relative_dist
 
