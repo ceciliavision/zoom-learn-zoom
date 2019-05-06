@@ -67,7 +67,7 @@ def batchnorm(inputs, is_training):
                         scale=False, fused=True, is_training=is_training)
 
 # Definition of the generator
-def SRResnet(gen_inputs, gen_output_channels, up_ratio=2, reuse=False, up_type='deconv', is_training=True):
+def SRResnet(gen_inputs, gen_output_channels, up_ratio=2, reuse=False, up_type='deconv'):
     # # Check the flag
     # if FLAGS is None:
     #     raise  ValueError('No FLAGS is provided for generator')
@@ -76,10 +76,10 @@ def SRResnet(gen_inputs, gen_output_channels, up_ratio=2, reuse=False, up_type='
     def residual_block(inputs, output_channel, stride, scope):
         with tf.variable_scope(scope):
             net = conv2(inputs, 4, output_channel, stride, use_bias=False, scope='conv_1')
-            net = batchnorm(net, is_training)
+            net = batchnorm(net, True)
             net = prelu_tf(net)
             net = conv2(net, 3, output_channel, stride, use_bias=False, scope='conv_2')
-            net = batchnorm(net, is_training)
+            net = batchnorm(net, True)
             net = net + inputs
 
         return net
@@ -99,7 +99,7 @@ def SRResnet(gen_inputs, gen_output_channels, up_ratio=2, reuse=False, up_type='
 
         with tf.variable_scope('resblock_output'):
             net = conv2(net, 3, 64, 1, use_bias=False, scope='conv')
-            net = batchnorm(net, is_training)
+            net = batchnorm(net, True)
 
         net = net + stage1_output
 
@@ -116,6 +116,16 @@ def SRResnet(gen_inputs, gen_output_channels, up_ratio=2, reuse=False, up_type='
 
             if up_ratio == 4:
                 with tf.variable_scope('subpixelconv_stage3'):
+                    net = conv2(net, 3, 256, 1, scope='conv')
+                    net = pixelShuffler(net, scale=2)
+                    net = prelu_tf(net)
+
+            if up_ratio == 8:
+                with tf.variable_scope('subpixelconv_stage3'):
+                    net = conv2(net, 3, 256, 1, scope='conv')
+                    net = pixelShuffler(net, scale=2)
+                    net = prelu_tf(net)
+                with tf.variable_scope('subpixelconv_stage4'):
                     net = conv2(net, 3, 256, 1, scope='conv')
                     net = pixelShuffler(net, scale=2)
                     net = prelu_tf(net)
