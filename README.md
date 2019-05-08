@@ -3,7 +3,7 @@ Code for CVPR 2019 paper: Zoom to Learn, Learn to Zoom
 
 <a href="https://ceciliavision.github.io/project-pages/project-zoom.html" target="_blank">Project Website</a>  |  <a href="" target="_blank">Paper</a>
 
-This paper shows that when applying machine learning to digital zoom for photography, it is beneficial to use real, RAW sensor data for training. This code is based on tensorflow (V 1.13.1). It has been tested on Ubuntu 16.04 LTS.
+This paper shows that when applying machine learning to digital zoom for photography, it is beneficial to use real, RAW sensor data for training. This code is based on tensorflow (tested on V 1.13.1). It has been tested on Ubuntu 16.04 LTS.
 
 ## ![](./teaser/teaser.png)
 
