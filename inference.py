@@ -74,28 +74,30 @@ def main():
 
     for id, inference_path in enumerate(inference_paths):
         print("Inference on %d image."%(id+1))
-        scale = 10.
         crop_ratio_list = [8]
         fracx_list = [config_file["io"]["fracx"]]
         fracy_list = [config_file["io"]["fracy"]]
         # save_prefix = config_file["io"]["prefix"] # 0.35,0.45,0.55,0.65,0.75
         for idx, fracx in enumerate(fracx_list): 
             for idy, fracy in enumerate(fracy_list):
-                save_prefix = "-%d-%d"%(idx,idy)
+                save_prefix = "%d-%d-%d"%(id,idx,idy)
                 for crop_ratio in crop_ratio_list:
-                    resize_ratio = 1 #crop_ratio/scale
+                    resize_ratio = crop_ratio/10. # resize outputs to a reasonable size
 
                     prefix = os.path.basename(os.path.dirname(inference_path))
 
                     if not os.path.isdir("%s/%s"%(task_folder, mode)):
                         os.makedirs("%s/%s"%(task_folder, mode))
 
-                    if not os.path.isdir("%s/%s/%s-%dx"%(task_folder, mode, prefix, crop_ratio)):
-                        os.makedirs("%s/%s/%s-%dx"%(task_folder, mode, prefix, crop_ratio))
+                    if not os.path.isdir("%s/%s/%s-s%d"%(task_folder, mode, prefix, crop_ratio)):
+                        os.makedirs("%s/%s/%s-s%d"%(task_folder, mode, prefix, crop_ratio))
 
                     wb_txt = os.path.dirname(inference_path)+'/wb.txt'
-                    out_wb = utils.read_wb(wb_txt, key=os.path.basename(inference_path).split('.')[0]+":")
-                    print("white balance: ",out_wb)
+                    if os.path.isfile(wb_txt):
+                        out_wb = utils.read_wb(wb_txt, key=os.path.basename(inference_path).split('.')[0]+":")
+                    else:
+                        print("white balance txt not exist, reading from raw EXIF data ... ")
+                        out_wb = utils.compute_wb(inference_path)
 
                     input_bayer = utils.get_bayer(inference_path, black_lv, white_lv)
                     input_raw_reshape = utils.reshape_raw(input_bayer)
@@ -116,13 +118,14 @@ def main():
                     wb_rgb[...,1] *= np.power(out_wb[0,1],1/2.2)
                     wb_rgb[...,2] *= np.power(out_wb[0,3],1/2.2)
                     
+                    print("Saving outputs ... ")
                     output_rgb = Image.fromarray(np.uint8(utils.clipped(wb_rgb)*255))
                     output_rgb = output_rgb.resize((int(output_rgb.width * resize_ratio),
                         int(output_rgb.height * resize_ratio)), Image.ANTIALIAS)
                     output_rgb.save("%s/%s/%s-%dx/out_rgb_%s.png"%(task_folder,mode,prefix,crop_ratio,save_prefix))
 
                     input_camera_rgb = Image.fromarray(np.uint8(utils.clipped(cropped_input_rgb)*255))
-                    input_camera_rgb.save("%s/%s/%s-%dx/input_rgb_camera_orig_%s.png"%(task_folder,mode,prefix,crop_ratio,config_file["io"]["prefix"]))
+                    input_camera_rgb.save("%s/%s/%s-%dx/input_rgb_camera_orig_%s.png"%(task_folder,mode,prefix,crop_ratio,save_prefix))
                     input_camera_rgb_naive = input_camera_rgb.resize((int(input_camera_rgb.width * up_ratio),
                         int(input_camera_rgb.height * up_ratio)), Image.ANTIALIAS)
                     input_camera_rgb_naive.save("%s/%s/%s-%dx/input_rgb_camera_naive_%s.png"%(task_folder,mode,prefix,crop_ratio,save_prefix), compress_level=1)
