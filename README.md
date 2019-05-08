@@ -26,11 +26,13 @@ We put example raw data [here](https://drive.google.com/open?id=1h6yjuaT7nk5a-_T
 - Clone/Download this repo
 - `$ cd zoom-learn-zoom`
 - Download our <a href="https://drive.google.com/open?id=1uZdZuLvh_jDo5aO60tLVW4RD7Gf9TP3O" target="_blank"> pre-trained zoom model </a>
-- To test on an inference folder, set `inference_root` in  `config/inference.yaml` to the [test_folder], and set `mode` to `inference`
-- To test on a single image, set `mode` to `inference_single` and `inference_path` to the raw data path
-- Modify the `restore_ckpt` (the folder where your checkpoints locate), `save_root` and `task_folder` in `config/inference.yaml` to your preferred paths
+- All you need to modify is the config file in `config/inference.yaml`
+- To do inference on a folder, set `inference_root` to the [test_folder], and set `mode` to `inference`
+- To do inference on a single image, set `mode` to `inference_single` and `inference_path` to the data path
+- Modify the `restore_ckpt` (the <em>folder</em> where your checkpoints locate)
+- Set `save_root` and `task_folder` to your preferred paths
 - Run `$ python3 inference.py`
-- Results are in `[save_root]/[task_folder]/[mode]`
+- Results are saved in `[save_root]/[task_folder]/[mode]`
 
 ## Training from scratch
 
