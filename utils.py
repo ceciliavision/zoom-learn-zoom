@@ -108,11 +108,11 @@ def read_paths(path, type='RAW'):
                             paths.append(os.path.join(root, fname))
         else:
             if type == 'RAW':
-                if is_raw_file(fname):
-                    paths.append(os.path.join(root, fname))
+                if is_raw_file(dirname):
+                    paths.append(os.path.join(path, dirname))
             else:
                 if is_image_file(fname):
-                    paths.append(os.path.join(root, fname))
+                    paths.append(os.path.join(path, dirname))
     return paths
 
 ### CHECK
