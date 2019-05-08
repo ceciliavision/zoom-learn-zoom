@@ -8,7 +8,6 @@ sys.path.append("..")
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-# import collections
 
 # Define the convolution building block
 def conv2(batch_input, kernel=3, output_channel=64, stride=1, use_bias=True, scope='conv'):
