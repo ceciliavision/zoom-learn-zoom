@@ -2,6 +2,7 @@
 Code for CVPR 2019 paper: Zoom to Learn, Learn to Zoom
 
 <a href="https://ceciliavision.github.io/project-pages/project-zoom.html" target="_blank">Project Website</a>
+
 <a href="" target="_blank">Paper</a>
 
 This paper shows that when applying machine learning to digital zoom for photography, it is beneficial to use real, RAW sensor data for training. This code is based on tensorflow. It has been tested on Ubuntu 16.04 LTS.
@@ -17,7 +18,7 @@ SR-RAW training and testing now available <a href="https://drive.google.com/open
 
 #### Try with your own data
 
-Our model is trained on raw data in <a href="http://arwviewer.com/" target="_blank">Sony Digital Camera Raw</a>. If you use other types of raw data formats (e.g. iPhone raw in DNG), it is recommended to fine tune the model with raw data in that format.
+Our model is trained on raw data in <a href="http://arwviewer.com/" target="_blank">Sony Digital Camera Raw</a>. If you use other types of raw data formats, like [DNG](https://helpx.adobe.com/photoshop/digital-negative.html) used by iPhone (you can use the app [Halide](https://itunes.apple.com/us/app/halide-camera/id885697368?mt=8) to store raw from iPhone), it is necessary to fine tune the model with raw data in that format.
 
 
 ## Quick inference
