@@ -21,7 +21,7 @@ Our model is trained on raw data in <a href="http://arwviewer.com/" target="_bla
 
 ## Quick inference
 
-We put example raw data [here](https://drive.google.com/open?id=1h6yjuaT7nk5a-_TyuCrCJumwkAT2ooH3) for quick inference. You can download these raw data and put into your `[test_folder]`.
+We put example raw data [here](https://drive.google.com/open?id=1h6yjuaT7nk5a-_TyuCrCJumwkAT2ooH3) for quick inference. You can download these raw data and put into your `[test_folder]`. Make sure that both .JPG and .ARW files are downloaded.
 
 - Clone/Download this repo
 - `$ cd zoom-learn-zoom`
