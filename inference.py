@@ -76,14 +76,14 @@ def main():
         print("Inference on %d image."%(id+1))
         scale = 10.
         crop_ratio_list = [8]
-        fracx = config_file["io"]["fracx"]
-        fracy = config_file["io"]["fracy"]
-        save_prefix = config_file["io"]["prefix"] # 0.35,0.45,0.55,0.65,0.75
-        for idx, fracx in enumerate([0.5]): 
-            for idy, fracy in enumerate([0.5]):
+        fracx_list = [config_file["io"]["fracx"]]
+        fracy_list = [config_file["io"]["fracy"]]
+        # save_prefix = config_file["io"]["prefix"] # 0.35,0.45,0.55,0.65,0.75
+        for idx, fracx in enumerate(fracx_list): 
+            for idy, fracy in enumerate(fracy_list):
                 save_prefix = "-%d-%d"%(idx,idy)
                 for crop_ratio in crop_ratio_list:
-                    resize_ratio = crop_ratio/scale
+                    resize_ratio = 1 #crop_ratio/scale
 
                     prefix = os.path.basename(os.path.dirname(inference_path))
 

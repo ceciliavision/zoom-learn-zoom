@@ -97,14 +97,22 @@ def read_wb(txtfile, key):
 def read_paths(path, type='RAW'):
     paths=[]
     for dirname in path:
-        for root, _, fnames in sorted(os.walk(dirname)):
-            for fname in sorted(fnames):
-                if type == 'RAW':
-                    if is_raw_file(fname):
-                        paths.append(os.path.join(root, fname))
-                else:
-                    if is_image_file(fname):
-                        paths.append(os.path.join(root, fname))
+        if os.path.isdir(dirname):
+            for root, _, fnames in sorted(os.walk(dirname)):
+                for fname in sorted(fnames):
+                    if type == 'RAW':
+                        if is_raw_file(fname):
+                            paths.append(os.path.join(root, fname))
+                    else:
+                        if is_image_file(fname):
+                            paths.append(os.path.join(root, fname))
+        else:
+            if type == 'RAW':
+                if is_raw_file(fname):
+                    paths.append(os.path.join(root, fname))
+            else:
+                if is_image_file(fname):
+                    paths.append(os.path.join(root, fname))
     return paths
 
 ### CHECK
