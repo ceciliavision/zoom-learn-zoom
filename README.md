@@ -23,7 +23,7 @@ Our model is trained on raw data in <a href="http://arwviewer.com/" target="_bla
 
 We put example raw data [here](https://drive.google.com/open?id=1h6yjuaT7nk5a-_TyuCrCJumwkAT2ooH3) for quick inference. You can download these raw data and put into your `[test_folder]`. Make sure that both .JPG and .ARW files are downloaded.
 
-- Clone/Download this repo
+- `$ git clone https://github.com/ceciliavision/zoom-learn-zoom.git`
 - `$ cd zoom-learn-zoom`
 - Download our <a href="https://drive.google.com/open?id=1uZdZuLvh_jDo5aO60tLVW4RD7Gf9TP3O" target="_blank"> pre-trained zoom model </a>
 - All you need to modify is the config file in `config/inference.yaml`
