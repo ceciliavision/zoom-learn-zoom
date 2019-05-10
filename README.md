@@ -36,11 +36,10 @@ python3 inference.py
 ```
 
 Notes about `config/inference.yaml`
-- To do inference on a folder, set `inference_root` to the [test_folder], and set `mode` to `inference`
-- To do inference on a single image, set `mode` to `inference_single` and `inference_path` to the data path
-- Modify the `restore_ckpt` (the <em>folder</em> where your checkpoints locate)
-- Set `save_root` and `task_folder` to your preferred paths
-Results are saved in `[save_root]/[task_folder]/[mode]`
+- To do inference on a folder, set `mode` to `inference` and set `inference_root` (e.g. `./quick_inference/`)
+- To do inference on a single image, set `mode` to `inference_single` and set `inference_path`  (e.g. `./quick_inference/00134.ARW`)
+- Set `task_folder` (e.g. `./restore_4x`)
+- Results are saved in `./[task_folder]/[mode]`
 
 
 ## Training from scratch
