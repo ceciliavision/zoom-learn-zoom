@@ -10,10 +10,9 @@ model:
   upsample_type: 'deconv'
 
 io:
-  inference_root: '/xxx/'  # if 'mode' is 'inference_single'
-  inference_path: '/xxx/xxx.ARW' # if 'mode' is 'inference'
+  inference_root: './quick_inference/'  # if 'mode' is 'inference_single'
+  inference_path: './quick_inference/00134.ARW' # if 'mode' is 'inference'
   fracx: 0.5  # x-fraciton of the cropped region, 0.5 would be the x-center
   fracy: 0.5  # y-fraciton of the cropped region, 0.5 would be the y-center
-  save_root: '/xxx'
-  restore_ckpt: '/xxx/model' # this folder contains checkpoint
-  task_folder: restore_4x
+  restore_ckpt: './model' # this folder contains checkpoint
+  task_folder: './restore_4x'

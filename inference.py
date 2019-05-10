@@ -22,7 +22,6 @@ def main():
     upsample_type = config_file["model"]["upsample_type"]
     
     # Input / Output parameters
-    save_root = config_file["io"]["save_root"]
     inference_root = [config_file["io"]["inference_root"]]
     task_folder = config_file["io"]["task_folder"]
     restore_path = config_file["io"]["restore_ckpt"]
@@ -122,13 +121,13 @@ def main():
                     output_rgb = Image.fromarray(np.uint8(utils.clipped(wb_rgb)*255))
                     output_rgb = output_rgb.resize((int(output_rgb.width * resize_ratio),
                         int(output_rgb.height * resize_ratio)), Image.ANTIALIAS)
-                    output_rgb.save("%s/%s/%s-%dx/out_rgb_%s.png"%(task_folder,mode,prefix,crop_ratio,save_prefix))
+                    output_rgb.save("%s/%s/%s-s%d/out_rgb_%s.png"%(task_folder,mode,prefix,crop_ratio,save_prefix))
 
                     input_camera_rgb = Image.fromarray(np.uint8(utils.clipped(cropped_input_rgb)*255))
-                    input_camera_rgb.save("%s/%s/%s-%dx/input_rgb_camera_orig_%s.png"%(task_folder,mode,prefix,crop_ratio,save_prefix))
+                    input_camera_rgb.save("%s/%s/%s-s%d/input_rgb_camera_orig_%s.png"%(task_folder,mode,prefix,crop_ratio,save_prefix))
                     input_camera_rgb_naive = input_camera_rgb.resize((int(input_camera_rgb.width * up_ratio),
                         int(input_camera_rgb.height * up_ratio)), Image.ANTIALIAS)
-                    input_camera_rgb_naive.save("%s/%s/%s-%dx/input_rgb_camera_naive_%s.png"%(task_folder,mode,prefix,crop_ratio,save_prefix), compress_level=1)
+                    input_camera_rgb_naive.save("%s/%s/%s-s%d/input_rgb_camera_naive_%s.png"%(task_folder,mode,prefix,crop_ratio,save_prefix), compress_level=1)
 
 
 if __name__ == "__main__":
