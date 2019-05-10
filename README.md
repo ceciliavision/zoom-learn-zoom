@@ -14,7 +14,20 @@ This paper shows that when applying machine learning to digital zoom for photogr
 
 SR-RAW training and testing now available <a href="https://drive.google.com/open?id=1UHKEUp77tiCZ9y05JtP6S9Tfo2RftK8m" target="_blank">here</a>.
 
+To download testing dataset (7 GB), run:
+```
+bash ./scripts/download.sh 19zlN1fqRRm7E_6i5J3B1OskJocVeuvzG test.zip
+unzip test.zip
+rm test.zip
+```
 We used 35 mm images (mostly named '00006' in the sequences) for test.
+
+To download training dataset (58 GB), run:
+```
+bash ./scripts/download.sh 1qp6z3F4Ru9srwq1lNZr3pQ4kcVN-AOlM train.zip
+unzip train.zip
+rm train.zip
+```
 
 #### Try with your own data
 
