@@ -14,6 +14,8 @@ This paper shows that when applying machine learning to digital zoom for photogr
 
 SR-RAW training and testing now available <a href="https://drive.google.com/open?id=1UHKEUp77tiCZ9y05JtP6S9Tfo2RftK8m" target="_blank">here</a>.
 
+(If you want to try out without downloading the full train/test dataset, please see the section of [quick inference](#quick-inference))
+
 To download testing dataset (7 GB), run:
 ```
 bash ./scripts/download.sh 19zlN1fqRRm7E_6i5J3B1OskJocVeuvzG test.zip
@@ -35,7 +37,7 @@ Our model is trained on raw data in <a href="http://arwviewer.com/" target="_bla
 
 ## Quick inference
 
-In the following, we will download the pre-trained model and example raw data for quick inference.
+We will download the pre-trained model and example raw data.
 
 ```
 git clone https://github.com/ceciliavision/zoom-learn-zoom.git
