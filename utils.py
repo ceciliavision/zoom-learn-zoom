@@ -280,3 +280,27 @@ def apply_gamma(image, gamma=2.22,is_apply=True):
     image_copy = image_copy ** (1./gamma)
     return image_copy
 
+# Convert RGB image into YUV https://en.wikipedia.org/wiki/YUV
+def rgb2yuv(rgb):
+    rgb2yuv_filter = tf.constant(
+        [[[[0.299, -0.169, 0.499],
+           [0.587, -0.331, -0.418],
+            [0.114, 0.499, -0.0813]]]])
+    rgb2yuv_bias = tf.constant([0., 0.5, 0.5])
+
+    temp = tf.nn.conv2d(rgb, rgb2yuv_filter, [1, 1, 1, 1], 'SAME')
+    temp = tf.nn.bias_add(temp, rgb2yuv_bias)
+
+    return temp
+
+def get_scale_matrix(ratio):
+    scale = np.eye(3, 3, dtype=np.float32)
+    scale[0,0] = ratio
+    scale[1,1] = ratio
+    return scale
+
+def concat_tform(tform_list):
+    tform_c = tform_list[0]
+    for tform in tform_list[1:]:
+        tform_c = np.matmul(tform, tform_c)
+    return tform_c

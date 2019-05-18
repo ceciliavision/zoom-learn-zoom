@@ -150,7 +150,6 @@ def compute_charbonnier_loss(input, epsilon=0.001, alpha=0.45, img=None, is_edge
         return tf.reduce_mean(tf.pow(tf.square(gradx1)+tf.square(epsilon), alpha))/2+\
             tf.reduce_mean(tf.pow(tf.square(grady1)+tf.square(epsilon), alpha))/2
 
-# Not used for training
 def compute_unalign_loss(prediction, target, tol, stride=1, losstype='l1'):
     if tol == 0:
         loss = tf.reduce_mean(tf.abs(target - prediction))
