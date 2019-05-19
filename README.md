@@ -1,7 +1,7 @@
 # zoom-learn-zoom
 Code for CVPR 2019 paper: Zoom to Learn, Learn to Zoom
 
-<a href="https://ceciliavision.github.io/project-pages/project-zoom.html" target="_blank">Project Website</a>  |  <a href="" target="_blank">Paper</a>
+<a href="https://ceciliavision.github.io/project-pages/project-zoom.html" target="_blank">Project Website</a>  |  <a href="https://arxiv.org/pdf/1905.05169.pdf" target="_blank">Paper</a>
 
 This paper shows that when applying machine learning to digital zoom for photography, it is beneficial to use real, RAW sensor data for training. This code is based on tensorflow (tested on V 1.13.1). It has been tested on Ubuntu 16.04 LTS.
 
@@ -13,6 +13,8 @@ This paper shows that when applying machine learning to digital zoom for photogr
 #### Use SR-RAW
 
 SR-RAW training and testing now available <a href="https://drive.google.com/open?id=1UHKEUp77tiCZ9y05JtP6S9Tfo2RftK8m" target="_blank">here</a>.
+
+(If you want to try out without downloading the full train/test dataset, please see the section of [quick inference](#quick-inference))
 
 To download testing dataset (7 GB), run:
 ```bash
@@ -35,7 +37,7 @@ Our model is trained on raw data in <a href="http://arwviewer.com/" target="_bla
 
 ## Quick inference
 
-In the following, we will download the pre-trained model and example raw data for quick inference.
+We will download the pre-trained model and example raw data.
 
 ```bash
 git clone https://github.com/ceciliavision/zoom-learn-zoom.git
