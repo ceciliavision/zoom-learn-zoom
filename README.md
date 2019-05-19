@@ -15,7 +15,7 @@ This paper shows that when applying machine learning to digital zoom for photogr
 SR-RAW training and testing now available <a href="https://drive.google.com/open?id=1UHKEUp77tiCZ9y05JtP6S9Tfo2RftK8m" target="_blank">here</a>.
 
 To download testing dataset (7 GB), run:
-```
+```bash
 bash ./scripts/download.sh 19zlN1fqRRm7E_6i5J3B1OskJocVeuvzG test.zip
 unzip test.zip
 rm test.zip
@@ -23,7 +23,7 @@ rm test.zip
 We used 35 mm images (mostly named '00006' in the sequences) for test.
 
 To download training dataset (58 GB), run:
-```
+```bash
 bash ./scripts/download.sh 1qp6z3F4Ru9srwq1lNZr3pQ4kcVN-AOlM train.zip
 unzip train.zip
 rm train.zip
@@ -37,7 +37,7 @@ Our model is trained on raw data in <a href="http://arwviewer.com/" target="_bla
 
 In the following, we will download the pre-trained model and example raw data for quick inference.
 
-```
+```bash
 git clone https://github.com/ceciliavision/zoom-learn-zoom.git
 cd zoom-learn-zoom
 bash ./scripts/download.sh 1iForbFhhWqrq22FA1xIusfUpdi8td4Kq model.zip
@@ -55,13 +55,25 @@ Notes about `config/inference.yaml`
 - Results are saved in `./[task_folder]/[mode]`
 
 
-## Training from scratch
+## Training
 
-<em>Coming soon</em>
+#### Data Pre-processing
 
-<!-- - `$ mkdir VGG_Model`
-- Download [VGG-19](http://www.vlfeat.org/matconvnet/pretrained/#downloading-the-pre-trained-models). Search `imagenet-vgg-verydeep-19` in this page and download `imagenet-vgg-verydeep-19.mat`. We need the pre-trained VGG-19 model for our hypercolumn input and feature loss
-- move the downloaded vgg model to folder `VGG_Model` -->
+We provide alignment functions and scripts to account for hand motion when capturing the dataset. This is an *optional* step, as CoBi loss does not require pixel-wise aligned data pairs for training. However, we notice that having a preliminary (imprecise) alignment step leads to faster convergence.  In summary, we provide:
+
+- `./scripts/run_align.sh` is the script that calls `./main_crop.py`  and `./main_align_camera.py`, which first aligns field of view and then accounts for hand motion misalignment among images
+- `./scripts/run_wb.sh` is the script that calls `./main_wb.py` to compute white balance applied to the processed images in the camera ISP
+
+To run these scripts, fill in [TRAIN_PATH] with your local training data path, and [TEST_PATH] with your local test data path. If you use your own collected data for training, you either follow our data directory structure or modify these scripts.
+
+```bash
+bash ./scripts/run_align.sh [TRAIN_PATH]
+bash ./scripts/run_wb.sh [TRAIN_PATH]
+bash ./scripts/run_align.sh [TEST_PATH]
+bash ./scripts/run_wb.sh [TEST_PATH]
+```
+
+After running these scripts, you can use the `tform.txt` and `wb.txt` inside each sequence during training. The folders called `./cropped`, `./compare` and `./aligned` are only saved for visualization.
 
 
 ## Citation

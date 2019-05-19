@@ -1,12 +1,12 @@
 #!/bin/bash
 
-dest_base=/data/zoom/train/ # [YOUR TRAINING DATA PATH]
+src_base=$1 # [YOUR TRAINING DATA PATH]
 sfolder=1
 efolder=585
 
 for (( i=sfolder; i<=efolder; i++))
 do
-    dest_dir=$(printf "$dest_base%0.5d/" $i)
+    dest_dir=$(printf "$src_base%0.5d/" $i)
     echo $dest_dir 
     num=$(find $dest_dir -maxdepth 1 -name '*.JPG' | wc -l)
     echo $num $dest_dir

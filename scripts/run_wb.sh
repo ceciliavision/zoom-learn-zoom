@@ -1,5 +1,5 @@
 #!/bin/bash
-src_base=/zoom/train/ #[YOUR TRAINING DATA PATH]
+src_base=$1 #[YOUR TRAINING DATA PATH]
 sfolder=1
 efolder=585
 

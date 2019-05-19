@@ -304,3 +304,11 @@ def concat_tform(tform_list):
     for tform in tform_list[1:]:
         tform_c = np.matmul(tform, tform_c)
     return tform_c
+
+def warp_image(target_rgb, out_size, tform):
+    target_rgb_warp = cv2.warpAffine(target_rgb, tform, (out_size[0], out_size[1]),
+        flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+    transformed_corner = get_transformed_corner(tform, out_size[0], out_size[1])
+    target_rgb_process = target_rgb_warp[transformed_corner['minw']:transformed_corner['maxw'],
+        transformed_corner['minh']:transformed_corner['maxh'],:]
+    return target_rgb_process, transformed_corner
