@@ -4,14 +4,10 @@ from __future__ import print_function
 from __future__ import unicode_literals
 import cv2,os,argparse
 import numpy as np
-import matplotlib.pyplot as plt
 from timeit import default_timer as timer
-from PIL import Image
 
 import utils as utils
 import utils_align as utils_align
-
-# python ./main_align.py --path /home/xuanerzh/Downloads/zoom/iphone2x_both/00065/ --rsz 3
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--path", type=str, default="/home/",
