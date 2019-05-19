@@ -8,8 +8,8 @@ import utils as utils
 
 def main():
 
-    config_file = "config/inference.yaml"
-    with open(config_file, "r") as f:
+    config_file_path = "config/inference.yaml"
+    with open(config_file_path, "r") as f:
         config_file = yaml.load(f)
 
     # Model parameters
