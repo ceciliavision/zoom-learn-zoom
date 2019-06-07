@@ -50,7 +50,7 @@ rm *.zip
 python3 inference.py
 ```
 
-Notes about `config/inference.yaml`
+Notes about `config/inference.yaml` (if you don't have yaml installed, make sure to install python version of it: PyYAML)
 - To do inference on a folder, set `mode` to `inference` and set `inference_root` (e.g. `./quick_inference/`)
 - To do inference on a single image, set `mode` to `inference_single` and set `inference_path`  (e.g. `./quick_inference/00134.ARW`)
 - Set `task_folder` (e.g. `./restore_4x`)
