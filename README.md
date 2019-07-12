@@ -31,6 +31,9 @@ unzip train.zip
 rm train.zip
 ```
 
+Training dataset on Baidu Drive:
+@llp1996 has kindly uploaded the dataset to <a href="https://pan.baidu.com/s/1pRu7DDnpUYaPdXY8Rlb6UQ" target="_blank">Baidu Drive</a>. The key is：wi02. The original issue opened <a href="https://github.com/ceciliavision/zoom-learn-zoom/issues/8#issue-456526689"> here</a>.
+
 #### Try with your own data
 
 Our model is trained on raw data in <a href="http://arwviewer.com/" target="_blank">Sony Digital Camera Raw</a>. If you use other types of raw data formats, like [DNG](https://helpx.adobe.com/photoshop/digital-negative.html) used by iPhone (you can use the app [Halide](https://itunes.apple.com/us/app/halide-camera/id885697368?mt=8) to store raw from iPhone), it is necessary to fine tune the model with raw data in that format.
