@@ -62,6 +62,9 @@ Notes about `config/inference.yaml`
 
 ## Training
 
+#### CoBi loss
+The implementation of CoBi loss presented in the paper can be found in the `./CX` directory. Refer to `./loss.py` to see how it's used. The full training pipeline is under preparation and will be released somewhere around October.
+
 #### Data Pre-processing
 
 We provide alignment functions and scripts to account for hand motion when capturing the dataset. This is an *optional* step, as CoBi loss does not require pixel-wise aligned data pairs for training. However, we notice that having a preliminary (imprecise) alignment step leads to faster convergence.  In summary, we provide:
