@@ -63,7 +63,7 @@ Notes about `config/inference.yaml`
 ## Training
 
 #### CoBi loss
-The implementation of CoBi loss presented in the paper can be found in the `./CX` directory. Refer to `./loss.py` to see how it's used. The full training pipeline is under preparation and will be released somewhere around October.
+The implementation of CoBi loss presented in the paper can be found in the `./CX` directory. It's modified based on the original contextual loss <a href='https://github.com/roimehrez/contextualLoss'>implementation</a>. Refer to `./loss.py` to see how it's used. The full training pipeline is under preparation and will be released somewhere around October.
 
 #### Data Pre-processing
 
