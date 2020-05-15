@@ -83,6 +83,8 @@ bash ./scripts/run_wb.sh [TEST_PATH]
 
 After running these scripts, you can use the `tform.txt` and `wb.txt` inside each sequence during training. The folders called `./cropped`, `./compare` and `./aligned` are only saved for visualization.
 
+#### [Update 05/15/2020] Preparing RAW-RGB pair demo
+We added a documented jupyter notebook `demo_train_patch_pair.ipynb` to walk you through the process of preparing for RAW-RGB pairs. A few functions are added to `utils.py`, please check out the newest commit.
 
 ## Citation
 

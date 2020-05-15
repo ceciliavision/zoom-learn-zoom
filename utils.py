@@ -312,3 +312,105 @@ def warp_image(target_rgb, out_size, tform):
     target_rgb_process = target_rgb_warp[transformed_corner['minw']:transformed_corner['maxw'],
         transformed_corner['minh']:transformed_corner['maxh'],:]
     return target_rgb_process, transformed_corner
+
+# utils to prepare aligned rgb-raw paires
+def crop_pair(
+    raw, image,
+    croph, cropw,
+    tol=32, raw_tol=4, ratio=2,
+    type='central',
+    fixx=0.5, fixy=0.5):
+
+    is_pad_h = False
+    is_pad_w = False
+    if type == 'central':
+        rand_p = rand_gen.rvs(2)
+    elif type == 'random':
+        rand_p = np.random.rand(2)
+    elif type == 'fixed':
+        rand_p = [fixx,fixy]
+    
+    height_raw, width_raw = raw.shape[:2]
+    height_rgb, width_rgb = image.shape[:2]
+    if croph > height_raw * 2*ratio or cropw > width_raw * 2*ratio:
+        print("Image too small to have the specified crop sizes.")
+        return None, None
+    croph_rgb = croph + tol * 2
+    cropw_rgb = cropw + tol * 2
+    croph_raw = int(croph/(ratio*2)) + raw_tol*2  # add a small offset to deal with boudary case
+    cropw_raw = int(cropw/(ratio*2)) + raw_tol*2  # add a small offset to deal with boudary case
+    if croph_rgb > height_rgb:
+        sx_rgb = 0
+        sx_raw = int(tol/2.)
+        is_pad_h = True
+        pad_h1_rgb = int((croph_rgb-height_rgb)/2)
+        pad_h2_rgb = int(croph_rgb-height_rgb-pad_h1_rgb)
+        pad_h1_raw = int(np.ceil(pad_h1_rgb/(2*ratio)))
+        pad_h2_raw = int(np.ceil(pad_h2_rgb/(2*ratio)))
+    else:
+        sx_rgb = int((height_rgb - croph_rgb) * rand_p[0])
+        sx_raw = max(0, int((sx_rgb + tol)/(2*ratio)) - raw_tol) # add a small offset to deal with boudary case
+    
+    if cropw_rgb > width_rgb:
+        sy_rgb = 0 
+        sy_raw = int(tol/2.)
+        is_pad_w = True
+        pad_w1_rgb = int((cropw_rgb-width_rgb)/2)
+        pad_w2_rgb = int(cropw_rgb-width_rgb-pad_w1_rgb)
+        pad_w1_raw = int(np.ceil(pad_w1_rgb/(2*ratio)))
+        pad_w2_raw = int(np.ceil(pad_w2_rgb/(2*ratio)))
+    else:
+        sy_rgb = int((width_rgb - cropw_rgb) * rand_p[1])
+        sy_raw = max(0, int((sy_rgb + tol)/(2*ratio)) - raw_tol)
+    
+    raw_cropped = raw
+    rgb_cropped = image
+    if is_pad_h:
+        print("Pad h with:", (pad_h1_rgb, pad_h2_rgb),(pad_h1_raw, pad_h2_raw))
+        rgb_cropped = np.pad(image, pad_width=((pad_h1_rgb, pad_h2_rgb),(0, 0),(0,0)),
+            mode='constant', constant_values=0)
+        raw_cropped = np.pad(raw, pad_width=((pad_h1_raw, pad_h2_raw),(0, 0),(0,0)),
+            mode='constant', constant_values=0)
+    if is_pad_w:
+        print("Pad w with:", (pad_w1_rgb, pad_w2_rgb),(pad_w1_raw, pad_w2_raw))
+        rgb_cropped = np.pad(image, pad_width=((0, 0),(pad_w1_rgb, pad_w2_rgb),(0,0)),
+            mode='constant', constant_values=0)
+        raw_cropped = np.pad(raw, pad_width=((0, 0),(pad_w1_raw, pad_w2_raw),(0,0)),
+            mode='constant', constant_values=0)
+    raw_cropped = raw_cropped[sx_raw:sx_raw+croph_raw, sy_raw:sy_raw+cropw_raw,...]
+    rgb_cropped = rgb_cropped[sx_rgb:sx_rgb+croph_rgb, sy_rgb:sy_rgb+cropw_rgb,...]
+
+    return raw_cropped, rgb_cropped
+
+def concat_tform(tform_list):
+    tform_c = tform_list[0]
+    for tform in tform_list[1:]:
+        tform_c = np.matmul(tform, tform_c)
+    return tform_c
+
+def post_process_rgb(target_rgb, out_size, tform):
+    target_rgb_warp = cv2.warpAffine(target_rgb, tform, (out_size[1], out_size[0]),
+        flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+    transformed_corner = get_transformed_corner(tform, out_size[0], out_size[1])
+    target_rgb_process = target_rgb_warp[transformed_corner['minh']:transformed_corner['maxh'],
+        transformed_corner['minw']:transformed_corner['maxw'],:]
+    return target_rgb_process, transformed_corner
+
+def get_transformed_corner(tform, h, w):
+    corner = np.array([[0,0,w,w],[0,h,0,h],[1,1,1,1]])
+    inv_tform = cv2.invertAffineTransform(tform)
+    corner_t = np.matmul(np.vstack([np.array(inv_tform),[0,0,1]]),corner)
+    min_w = np.max(corner_t[0,[0,1]])
+    min_w = int(np.max(np.ceil(min_w),0))
+    min_h = np.max(corner_t[1,[0,2]])
+    min_h = int(np.max(np.ceil(min_h),0))
+    max_w = np.min(corner_t[0,[2,3]])
+    max_w = int(np.floor(max_w))
+    max_h = np.min(corner_t[1,[1,3]])
+    max_h = int(np.floor(max_h))
+    tformed = {}
+    tformed['minw'] = max(0,min_w)
+    tformed['maxw'] = min(w,max_w)
+    tformed['minh'] = max(0,min_h)
+    tformed['maxh'] = min(h,max_h)
+    return tformed
