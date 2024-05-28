@@ -12,7 +12,7 @@ This paper shows that when applying machine learning to digital zoom for photogr
 
 #### Use SR-RAW
 
-SR-RAW training and testing now available <a href="https://drive.google.com/open?id=1UHKEUp77tiCZ9y05JtP6S9Tfo2RftK8m](https://drive.google.com/drive/folders/1FHhcrZjYvFm-zliziQIRVzYjlZUCikai?usp=sharing" target="_blank">here</a>.
+SR-RAW training and testing now available <a href="https://drive.google.com/drive/folders/1FHhcrZjYvFm-zliziQIRVzYjlZUCikai?usp=sharing" target="_blank">here</a>.
 
 (If you want to try out without downloading the full train/test dataset, please see the section of [quick inference](#quick-inference))
 
